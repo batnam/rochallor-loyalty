@@ -43,7 +43,7 @@ servers:
 channels:
   paymenthub.card_spend.v1:
     description: A settled card spend (POS / online). Translated by the Bridge into loyalty.earn.translated.v1.
-    x-deployment-alias: paymenthub.card_spend.v1      # canonical name == iBank KH deployment-actual (no alias mapping needed)
+    x-deployment-alias: paymenthub.card_spend.v1      # canonical name == HBP deployment-actual (no alias mapping needed)
     subscribe:
       operationId: onCardSpendPosted
       summary: Payment Hub emits; Bridge (PaymentHub Consumer) subscribes.
@@ -81,7 +81,7 @@ channels:
       Account-state events from the Core Banking Adapter (e.g. AccountBalanceSnapshot, TermDepositOpened).
       Modelled as one channel with a discriminated `eventType`; the adapter is the producer-side
       seam — the core banking system itself stays unchanged.
-    x-deployment-alias: t24adapter.account_state.v1   # v1 iBank KH deployment-actual topic; see deployments/ibank-kh/DEPLOYMENT.md
+    x-deployment-alias: t24adapter.account_state.v1   
     subscribe:
       operationId: onCoreBankingAccountState
       summary: The Core Banking Adapter emits; Bridge (Core Banking Account-State Consumer) subscribes.
@@ -90,7 +90,7 @@ channels:
 
   customer.closed.v1:
     description: A Customer was closed in the Customer Service master. Translated to loyalty.member.lifecycle.v1.
-    x-deployment-alias: rdb.customer.closed.v1        # v1 iBank KH deployment-actual topic; see deployments/ibank-kh/DEPLOYMENT.md
+    x-deployment-alias: rdb.customer.closed.v1        
     subscribe:
       operationId: onCustomerClosed
       summary: Customer Service emits; Bridge (Customer-Lifecycle Consumer) subscribes.

@@ -12,8 +12,8 @@ info:
 
     **How a bank integrates.** The Host Bank builds a **bank-side adapter** (outside the Loyalty
     repo, owned by the deployment/integration team) that consumes the bank's native stream — e.g.
-    iBank KH's `ph.transaction.transaction-event`
-    ([`deployments/ibank-kh/asyncapi/transaction-events.asyncapi.yaml`](../../deployments/ibank-kh/asyncapi/transaction-events.asyncapi.yaml))
+    HBP's `ph.transaction.transaction-event`
+    ([`deployments/hbp/asyncapi/transaction-events.asyncapi.yaml`](../../deployments/hbp/asyncapi/transaction-events.asyncapi.yaml))
     — and emits events on these channels. The adapter owns the bank-specific concerns the
     platform deliberately refuses to absorb: de-duplicating multi-`step` events down to the single
     settled event, resolving `accountNumber → customerId`, and propagating `traceparent`.
@@ -139,7 +139,7 @@ components:
         - name: pos-usd
           summary: A USD POS purchase.
           payload:
-            eventId: "ibank-kh:cardspend:TXN20260529000789"
+            eventId: "hbp:cardspend:TXN20260529000789"
             customerId: 100990001
             occurredAt: "2026-05-29T10:30:00Z"
             amount: 42.50
@@ -157,10 +157,10 @@ components:
       payload:
         $ref: '#/components/schemas/PaymentPayload'
       examples:
-        - name: p2p-khr
+        - name: p2p-vnd
           summary: A VND P2P transfer (excluded from earning by DSL).
           payload:
-            eventId: "ibank-kh:payment:TXN20260529000901"
+            eventId: "hbp:payment:TXN20260529000901"
             customerId: 100990001
             occurredAt: "2026-05-29T11:00:00Z"
             amount: 50000.0
@@ -171,7 +171,7 @@ components:
         - name: bill-usd
           summary: A USD utility bill payment.
           payload:
-            eventId: "ibank-kh:payment:TXN20260529000902"
+            eventId: "hbp:payment:TXN20260529000902"
             customerId: 100990002
             occurredAt: "2026-05-29T11:05:00Z"
             amount: 12.00
@@ -191,10 +191,10 @@ components:
       examples:
         - name: refund
           payload:
-            eventId: "ibank-kh:reversal:RV20260529000045"
+            eventId: "hbp:reversal:RV20260529000045"
             customerId: 100990001
             occurredAt: "2026-05-30T09:00:00Z"
-            originalEventId: "ibank-kh:cardspend:TXN20260529000789"
+            originalEventId: "hbp:cardspend:TXN20260529000789"
             reversalEventId: "RV20260529000045"
             amount: 42.50
             currency: "USD"
@@ -211,7 +211,7 @@ components:
       examples:
         - name: closed
           payload:
-            eventId: "ibank-kh:lifecycle:CL20260529000003"
+            eventId: "hbp:lifecycle:CL20260529000003"
             customerId: 100990001
             occurredAt: "2026-05-30T10:00:00Z"
             lifecycleType: "CUSTOMER_CLOSED"
@@ -231,7 +231,7 @@ components:
             must set this; the Bridge forwards it onto the canonical event.
         source:
           type: string
-          example: "ibank-kh-paymenthub"
+          example: "hbp-paymenthub"
           description: Producing-system identifier of the bank-side adapter (deployment-scoped).
 
     CardSpendPayload:
@@ -245,7 +245,7 @@ components:
             the canonical event's `eventId`; downstream dedups on it. The adapter must guarantee the
             same settled transaction always yields the same eventId (so step-event de-duplication and
             adapter retries are idempotent).
-          example: "ibank-kh:cardspend:TXN20260529000789"
+          example: "hbp:cardspend:TXN20260529000789"
         customerId:
           type: integer
           format: int64
@@ -288,7 +288,7 @@ components:
         eventId:
           type: string
           description: Bank-stable, globally-unique idempotency key for this completed payment. Carried through to the canonical event's eventId.
-          example: "ibank-kh:payment:TXN20260529000901"
+          example: "hbp:payment:TXN20260529000901"
         customerId:
           type: integer
           format: int64
@@ -351,7 +351,7 @@ components:
         eventId:
           type: string
           description: Bank-stable idempotency key for this reversal.
-          example: "ibank-kh:reversal:RV20260529000045"
+          example: "hbp:reversal:RV20260529000045"
         customerId:
           type: integer
           format: int64
@@ -361,7 +361,7 @@ components:
         originalEventId:
           type: string
           description: eventId of the earn event being reversed; loyalty-core matches source_ref on it.
-          example: "ibank-kh:cardspend:TXN20260529000789"
+          example: "hbp:cardspend:TXN20260529000789"
         reversalEventId:
           type: string
           example: "RV20260529000045"
@@ -383,7 +383,7 @@ components:
       properties:
         eventId:
           type: string
-          example: "ibank-kh:lifecycle:CL20260529000003"
+          example: "hbp:lifecycle:CL20260529000003"
         customerId:
           type: integer
           format: int64

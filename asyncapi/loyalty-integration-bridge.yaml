@@ -200,7 +200,7 @@ components:
       required: [traceparent, source]
       properties:
         traceparent: { type: string, description: Propagated from the inbound Ingress Event (single distributed trace across the seam). }
-        source: { type: string, example: "ibank-kh-paymenthub", description: Producing-system id, propagated from the Ingress Event. }
+        source: { type: string, example: "hbp-paymenthub", description: Producing-system id, propagated from the Ingress Event. }
 
     CustomerScopedEnvelope:
       type: object
