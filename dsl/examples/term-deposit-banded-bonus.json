@@ -1,0 +1,19 @@
+{
+  "dslVersion": 1,
+  "earnSource": "TERM_DEPOSIT_OPENED",
+  "inputs": ["amount", "currency"],
+  "hitPolicy": "FIRST",
+  "tierMultiplier": false,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "currency": "USD", "amount": { "gte": 5000 } },
+      "earn": { "type": "FIXED", "points": 5000 }
+    },
+    {
+      "when": { "currency": "USD", "amount": { "between": [1000, 4999.99] } },
+      "earn": { "type": "FIXED", "points": 1000 }
+    }
+  ],
+  "caps": { "perMemberPerRule": null }
+}

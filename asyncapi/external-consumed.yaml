@@ -1,0 +1,206 @@
+asyncapi: '2.6.0'
+info:
+  title: External Events Consumed by Loyalty (reference)
+  version: '0.2.0'
+  description: |
+    > **SUPERSEDED AS A CONTRACT.**
+    > Loyalty no longer consumes bank-native events directly. The integration contract is now
+    > **Loyalty-authored** ([`loyalty-ingress.yaml`](loyalty-ingress.yaml)); each Host Bank builds a
+    > **bank-side adapter** that consumes its own native stream and produces `loyalty.ingress.*`.
+    > This file is retained only as *per-deployment documentation of a bank's native stream* — the
+    > input an adapter reads — not as a contract Loyalty implements against.
+
+    Events **consumed** by the Loyalty platform but **owned by upstream Host Bank Platform teams**.
+    These schemas are NOT authored by Loyalty — the authoritative contracts live in the producers'
+    own documentation. This file is a *reference* of what `loyalty-integration-bridge` reads,
+    captured from the sequence flows (Arch §4.6.1/§4.6.4) and the integration-bridge L3.
+
+    **Topic names below are canonical**
+    — `corebank.*`, `customer.*`, `paymenthub.*` are role-based names that hold across deployments.
+    The **deployment-actual Kafka topic** that each canonical channel binds to is carried on every
+    channel as `x-deployment-alias` (informational; the runtime binding is configured in the Bridge's
+    topic-alias config, kept in sync with `deployments/<bank>/DEPLOYMENT.md`). Only
+    `loyalty-integration-bridge` is aware of deployment-actual topic names; everywhere else in the
+    platform speaks canonical.
+
+    Because these are documented from the **producer's** perspective, a `subscribe` operation
+    means "the producer emits this; the Bridge subscribes to receive it". The Bridge schema-
+    validates every inbound message and routes failures to a per-topic DLQ (integration-bridge
+    L3 §3.2). ACLs (canonical channel families): `paymenthub.*`, `corebank.*`, `customer.*` —
+    each binding to a deployment-actual topic via the Bridge alias config.
+  contact:
+    name: Loyalty Platform — Lead Solution Architect (reference only; producers own these)
+defaultContentType: application/json
+
+servers:
+  msk:
+    url: b-1.shared-msk.<region>.amazonaws.com:9094
+    protocol: kafka-secure
+    description: Shared Host Bank Platform MSK cluster.
+    security:
+      - mtls: []
+
+channels:
+  paymenthub.card_spend.v1:
+    description: A settled card spend (POS / online). Translated by the Bridge into loyalty.earn.translated.v1.
+    x-deployment-alias: paymenthub.card_spend.v1      # canonical name == iBank KH deployment-actual (no alias mapping needed)
+    subscribe:
+      operationId: onCardSpendPosted
+      summary: Payment Hub emits; Bridge (PaymentHub Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/CardSpendPosted'
+
+  paymenthub.payment_reversed.v1:
+    description: A reversal/refund of a prior payment. Triggers refund clawback (Arch §4.6.4).
+    x-deployment-alias: paymenthub.payment_reversed.v1
+    subscribe:
+      operationId: onPaymentReversed
+      summary: Payment Hub emits; Bridge (PaymentHub Consumer + Refund Clawback Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/PaymentReversed'
+
+  paymenthub.payment_completed.v1:
+    description: |
+      A completed payment (non-card rails). Earnable depending on active Earning Rules (Arch §4.2.4).
+      Carries a required producer-vocabulary `paymentType` discriminator distinguishing bill payment,
+      fund transfer, P2P, QR merchant payment, and top-up. The Bridge's
+      `payment-type-to-earn-source.mapping.yaml` routes producer values to one of the canonical
+      Loyalty Earn Sources (`BILL_PAYMENT` / `FUND_TRANSFER` / `TOPUP`); `payment-type.mapping.yaml`
+      preserves a canonical `paymentType` on the EarnEvent payload so DSL rules under
+      `FUND_TRANSFER` can discriminate `P2P_TRANSFER` (typically excluded) vs `QR_PAYMENT` vs
+      `FUND_TRANSFER` itself.
+    x-deployment-alias: paymenthub.payment_completed.v1
+    subscribe:
+      operationId: onPaymentCompleted
+      summary: Payment Hub emits; Bridge subscribes.
+      message:
+        $ref: '#/components/messages/PaymentCompleted'
+
+  corebank.account_state.v1:
+    description: |
+      Account-state events from the Core Banking Adapter (e.g. AccountBalanceSnapshot, TermDepositOpened).
+      Modelled as one channel with a discriminated `eventType`; the adapter is the producer-side
+      seam — the core banking system itself stays unchanged.
+    x-deployment-alias: t24adapter.account_state.v1   # v1 iBank KH deployment-actual topic; see deployments/ibank-kh/DEPLOYMENT.md
+    subscribe:
+      operationId: onCoreBankingAccountState
+      summary: The Core Banking Adapter emits; Bridge (Core Banking Account-State Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/CoreBankingAccountStateEvent'
+
+  customer.closed.v1:
+    description: A Customer was closed in the Customer Service master. Translated to loyalty.member.lifecycle.v1.
+    x-deployment-alias: rdb.customer.closed.v1        # v1 iBank KH deployment-actual topic; see deployments/ibank-kh/DEPLOYMENT.md
+    subscribe:
+      operationId: onCustomerClosed
+      summary: Customer Service emits; Bridge (Customer-Lifecycle Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/CustomerClosed'
+
+components:
+  securitySchemes:
+    mtls:
+      type: X509
+      description: Service-to-service mutual TLS.
+
+  messages:
+    CardSpendPosted:
+      name: CardSpendPosted
+      messageId: CardSpendPosted
+      title: Card Spend Posted
+      headers: { $ref: '#/components/schemas/ProducerHeaders' }
+      payload:
+        type: object
+        required: [eventId, customerId, amount, currency, timestamp]
+        properties:
+          eventId: { type: string, description: 'Stable producer id; Loyalty uses it as idempotency key.' }
+          customerId: { type: integer, format: int64 }
+          amount: { type: number }
+          currency: { type: string, example: USD }
+          mcc: { type: string, description: Merchant category code. }
+          merchantId: { type: string }
+          timestamp: { type: string, format: date-time }
+
+    PaymentReversed:
+      name: PaymentReversed
+      messageId: PaymentReversed
+      title: Payment Reversed
+      headers: { $ref: '#/components/schemas/ProducerHeaders' }
+      payload:
+        type: object
+        required: [originalEventId, reversalEventId, customerId, amount, reversedAt]
+        properties:
+          originalEventId: { type: string, description: eventId of the payment being reversed. }
+          reversalEventId: { type: string }
+          customerId: { type: integer, format: int64 }
+          amount: { type: number }
+          currency: { type: string, example: USD }
+          reversedAt: { type: string, format: date-time }
+
+    PaymentCompleted:
+      name: PaymentCompleted
+      messageId: PaymentCompleted
+      title: Payment Completed
+      headers: { $ref: '#/components/schemas/ProducerHeaders' }
+      payload:
+        type: object
+        required: [eventId, customerId, amount, currency, paymentType, timestamp]
+        properties:
+          eventId: { type: string, description: 'Stable producer id; Loyalty uses it as idempotency key.' }
+          customerId: { type: integer, format: int64 }
+          amount: { type: number, description: 'Debited amount in `currency` from the customer''s perspective. No Bridge-side FX normalisation.' }
+          currency: { type: string, example: USD, description: 'Debited account currency (USD or VND in Cambodia dual-currency market).' }
+          paymentType:
+            type: string
+            description: |
+              Producer-vocabulary discriminator. Specific enum values are owned by Payment Hub and
+              filled in pending PH confirmation; the Bridge translates these to canonical Loyalty
+              values via `payment-type-to-earn-source.mapping.yaml` (routing) and
+              `payment-type.mapping.yaml` (payload preservation). Unmapped values fall back to
+              canonical `OTHER` / Earn Source `PAYMENT_COMPLETED`.
+          # Sub-field placeholders — added once PH confirms availability (open-items-v1-earning.md).
+          # billerCategory:        { type: string, nullable: true, description: 'Populated when paymentType is a bill payment. Translated via biller-category.mapping.yaml.' }
+          # billerId:              { type: string, nullable: true }
+          # recipientCustomerId:   { type: integer, format: int64, nullable: true, description: 'Same-bank P2P recipient. Anti-self-transfer signal.' }
+          # recipientRelationship: { type: string, nullable: true, description: 'OWN_ACCOUNT / OWN_CUSTOMER / OTHER_CUSTOMER / EXTERNAL_BANK — translated via recipient-relationship.mapping.yaml.' }
+          # merchantId:            { type: string, nullable: true, description: 'Populated for QR merchant payments.' }
+          # mcc:                   { type: string, nullable: true }
+          # topupTarget:           { type: string, nullable: true, description: 'MOBILE_AIRTIME / E_WALLET / PREPAID_CARD — translated via topup-target.mapping.yaml.' }
+          timestamp: { type: string, format: date-time }
+
+    CoreBankingAccountStateEvent:
+      name: CoreBankingAccountStateEvent
+      messageId: CoreBankingAccountStateEvent
+      title: Core Banking Account-State Event
+      headers: { $ref: '#/components/schemas/ProducerHeaders' }
+      payload:
+        type: object
+        required: [eventId, eventType, customerId, occurredAt]
+        properties:
+          eventId: { type: string }
+          eventType: { type: string, enum: [AccountBalanceSnapshot, TermDepositOpened] }
+          customerId: { type: integer, format: int64 }
+          accountId: { type: string }
+          balance: { type: number, nullable: true }
+          currency: { type: string, nullable: true }
+          occurredAt: { type: string, format: date-time }
+
+    CustomerClosed:
+      name: CustomerClosed
+      messageId: CustomerClosed
+      title: Customer Closed
+      headers: { $ref: '#/components/schemas/ProducerHeaders' }
+      payload:
+        type: object
+        required: [customerId, closedAt]
+        properties:
+          customerId: { type: integer, format: int64 }
+          reason: { type: string, nullable: true }
+          closedAt: { type: string, format: date-time }
+
+  schemas:
+    ProducerHeaders:
+      type: object
+      description: Producer-set headers; the Bridge propagates traceparent across the ACL seam.
+      properties:
+        traceparent: { type: string }

@@ -1,0 +1,23 @@
+{
+  "dslVersion": 1,
+  "earnSource": "CARD_SPEND",
+  "inputs": ["mcc", "amount", "currency"],
+  "hitPolicy": "FIRST",
+  "tierMultiplier": true,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "currency": "USD", "mcc": { "in": ["5812", "5813", "5814"] } },
+      "earn": { "type": "RATE", "perAmount": 1, "points": 3 }
+    },
+    {
+      "when": { "currency": "USD", "mcc": { "in": ["5411", "5422", "5499"] } },
+      "earn": { "type": "RATE", "perAmount": 1, "points": 2 }
+    },
+    {
+      "when": { "currency": "USD", "mcc": "*" },
+      "earn": { "type": "RATE", "perAmount": 1, "points": 1 }
+    }
+  ],
+  "caps": { "perEventMax": 500, "perMemberPerDay": 1000 }
+}

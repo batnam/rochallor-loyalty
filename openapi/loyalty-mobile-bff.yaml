@@ -1,0 +1,516 @@
+openapi: 3.0.3
+info:
+  title: loyalty-mobile-bff — Customer API
+  version: '0.1.0'
+  description: |
+    Customer-facing edge API for the Rochallor Loyalty Platform, consumed by the RDB Mobile App
+    via AWS API Gateway under `/api/loyalty/mobile/*`. Aggregates `loyalty-core`,
+    `loyalty-redemption`, and `loyalty-campaign` (Arch §4.2.2).
+
+    **Auth:** the RDB Authentication Service verifies the customer token and injects the customer
+    identity into the request before it reaches the BFF (Arch §7.1). The BFF does no token handling;
+    requests are keyed by `customerId` (the Host Bank customer identifier) — Loyalty's internal `memberId`
+    is never exposed at this edge.
+
+    **Multi-Program:** every Points-bearing payload carries a non-null
+    `programId` (+ `programCode`) from v1. Mobile v1 reads but does not render it (one Program
+    seeded); Mobile v2 switches behaviour on it. Program-scoped paths take `{programId}`.
+
+    **Idempotency:** `POST /redemptions` requires an `Idempotency-Key` header; retries
+    on poor connectivity must not create duplicate reservations.
+  contact:
+    name: Loyalty Platform — Lead Solution Architect
+
+servers:
+  - url: https://api.rdb.example/api/loyalty/mobile
+    description: Edge route via AWS API Gateway.
+
+security:
+  - customerJwt: []
+
+tags:
+  - name: Programs
+    description: Enrollment, opt-in/out, and T&Cs acceptance.
+  - name: Balance & History
+    description: Balances, transaction history, tier progress, expiring points.
+  - name: Rewards & Redemption
+    description: Reward catalogue browsing and two-phase redemption.
+  - name: Campaigns
+    description: Live campaigns and sweepstakes entries.
+
+paths:
+  /me/programs:
+    get:
+      tags: [Programs]
+      operationId: listEnrolledPrograms
+      summary: List the programs the member is enrolled in.
+      description: Returns the `enrolledPrograms` array (no server-side "primary").
+      parameters: [ { $ref: '#/components/parameters/CustomerIdQuery' } ]
+      responses:
+        '200':
+          description: Enrolled programs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrolledPrograms:
+                    type: array
+                    items: { $ref: '#/components/schemas/EnrolledProgram' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/programs/{programId}/opt-in:
+    post:
+      tags: [Programs]
+      operationId: optInToProgram
+      summary: Opt the member into a Program (explicit opt-in, accepting current T&Cs).
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, tcsVersion]
+              properties:
+                customerId: { type: integer, format: int64, description: 'Host Bank customer identifier (CIF), supplied by the request (gateway Auth Service injects it after verifying the token); the edge never uses Loyalty memberId.' }
+                tcsVersion: { type: integer, description: T&Cs version being accepted. }
+      responses:
+        '200':
+          description: Opted in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrolledProgram' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Already enrolled.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /me/programs/{programId}/opt-out:
+    post:
+      tags: [Programs]
+      operationId: optOutOfProgram
+      summary: Opt the member out of a Program. Members may opt out of any Program at any time.
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+      responses:
+        '204': { description: Opted out. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/programs/{programId}/tcs-acceptance:
+    post:
+      tags: [Programs]
+      operationId: acceptProgramTcs
+      summary: Accept T&Cs for an auto-enrolled Program (unlocks earning).
+      description: For AUTO_ENROLL_* members created with `tcsVersionAccepted = null`; earning stays gated until accepted.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, tcsVersion]
+              properties:
+                customerId: { type: integer, format: int64, description: 'Host Bank customer identifier (CIF), supplied by the request (gateway Auth Service injects it after verifying the token); the edge never uses Loyalty memberId.' }
+                tcsVersion: { type: integer }
+      responses:
+        '200':
+          description: Accepted; earning unlocked.
+          content: { application/json: { schema: { $ref: '#/components/schemas/EnrolledProgram' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/programs/{programId}/balance:
+    get:
+      tags: [Balance & History]
+      operationId: getBalance
+      summary: Get the member's balances for a Program.
+      description: |
+        `redeemableBalance` is the customer-facing balance; `effectiveRedeemableBalance` deducts
+        active reservations. `qualifyingBalance` powers tier progress and is not shown
+        as a raw number in the UI. May be negative after a clawback.
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+      responses:
+        '200':
+          description: Balances.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Balance' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/programs/{programId}/transactions:
+    get:
+      tags: [Balance & History]
+      operationId: listTransactions
+      summary: Paginated Point transaction history (Ledger entries) for a Program.
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Transaction page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/LedgerEntry' }
+                  nextCursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/programs/{programId}/tier:
+    get:
+      tags: [Balance & History]
+      operationId: getTierState
+      summary: Current tier and progress to the next tier.
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+      responses:
+        '200':
+          description: Tier state.
+          content: { application/json: { schema: { $ref: '#/components/schemas/TierState' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/programs/{programId}/expiring-points:
+    get:
+      tags: [Balance & History]
+      operationId: listExpiringPoints
+      summary: Cohorts expiring soon (FIFO), for the "points expiring" UI.
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+      responses:
+        '200':
+          description: Expiring cohorts, soonest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    amount: { type: integer, format: int64 }
+                    expiresAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/programs/{programId}/rewards:
+    get:
+      tags: [Rewards & Redemption]
+      operationId: listRewards
+      summary: Reward catalogue for a Program, filtered to those the member is eligible for.
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Eligible rewards.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/RewardSummary' }
+                  nextCursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /rewards/{rewardId}:
+    get:
+      tags: [Rewards & Redemption]
+      operationId: getReward
+      summary: Reward detail.
+      parameters: [ { $ref: '#/components/parameters/RewardId' } ]
+      responses:
+        '200':
+          description: Reward detail.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reward' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /redemptions:
+    post:
+      tags: [Rewards & Redemption]
+      operationId: redeem
+      summary: Redeem a reward (two-phase; sync or async fulfillment).
+      description: |
+        Initiates redemption (Arch §4.6.2/§4.6.3). Sync adapters (cashback, internal voucher,
+        sweepstakes entry) return `200` with `status=COMPLETED`; async adapters (3rd-party voucher)
+        return `202` with `status=PENDING` — poll `GET /redemptions/{id}`.
+
+        **Step-up:** high-value redemptions (e.g. cashback > USD 50, configurable per Program)
+        require a transaction-PIN step-up token in `X-Step-Up-Token`; absent/invalid → `403`
+        with code `STEP_UP_REQUIRED` (Arch §7.1).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: X-Step-Up-Token
+          in: header
+          required: false
+          schema: { type: string }
+          description: Transaction-PIN step-up token for high-value redemptions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, programId, rewardId]
+              properties:
+                customerId: { type: integer, format: int64, description: 'Host Bank customer identifier (CIF) — whose points are spent and whose CASA the disbursement is credited to. Supplied by the Mobile App; the edge never uses Loyalty memberId.' }
+                accountNumber: { type: string, nullable: true, description: 'Target CASA the customer picked for a cashback credit (one CIF may own several). Required for cashback rewards; null otherwise.' }
+                programId: { type: integer, format: int64 }
+                rewardId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Synchronous fulfillment completed.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RedemptionResult' } } }
+        '202':
+          description: Asynchronous fulfillment accepted; poll for completion.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RedemptionResult' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: Forbidden — step-up required or member ineligible / balance negative.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '409':
+          description: Idempotency-Key already used with a different request, or inventory exhausted.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /redemptions/{redemptionId}:
+    get:
+      tags: [Rewards & Redemption]
+      operationId: getRedemption
+      summary: Poll redemption status (async fulfillment).
+      parameters: [ { $ref: '#/components/parameters/RedemptionId' } ]
+      responses:
+        '200':
+          description: Redemption status.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RedemptionResult' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/programs/{programId}/campaigns:
+    get:
+      tags: [Campaigns]
+      operationId: listCampaigns
+      summary: Live campaigns the member is eligible for in a Program.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      responses:
+        '200':
+          description: Campaigns.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CampaignSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/programs/{programId}/drawing-entries:
+    get:
+      tags: [Campaigns]
+      operationId: listMyDrawingEntries
+      summary: The member's sweepstakes entries and winner status.
+      description: Sweepstakes entry itself is performed via POST /redemptions with a sweepstakes-entry reward (Arch §4.6.5).
+      parameters:
+        - { $ref: '#/components/parameters/CustomerIdQuery' }
+        - { $ref: '#/components/parameters/ProgramId' }
+      responses:
+        '200':
+          description: Entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DrawingEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    customerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Customer JWT from RDB Authentication Service (Keycloak), retail-banking realm.
+
+  parameters:
+    CustomerIdQuery:
+      name: customerId
+      in: query
+      required: true
+      schema: { type: integer, format: int64 }
+      description: >-
+        The Host Bank customer identifier (CIF) whose data is read. Supplied by the Mobile App; the
+        gateway Authentication Service verifies it against the token before the request reaches the BFF.
+        The edge never uses Loyalty's internal memberId.
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RewardId:
+      name: rewardId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RedemptionId:
+      name: redemptionId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, default: 20, maximum: 100 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, maxLength: 160 }
+      description: Client-generated idempotency key.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    NotFound:
+      description: Resource not found or not visible to this member.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  schemas:
+    ProgramRef:
+      type: object
+      description: Program identity present on every Points-bearing payload.
+      required: [programId, programCode]
+      properties:
+        programId: { type: integer, format: int64 }
+        programCode: { type: string, maxLength: 32, example: RDB_REWARDS }
+
+    EnrolledProgram:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            optInStatus: { type: string, enum: [ACTIVE, SUSPENDED_TCS, OPTED_OUT, CLOSED] }
+            tcsVersionAccepted: { type: integer, nullable: true, description: null = T&Cs not yet accepted; earning gated. }
+            eligibilityStatus: { type: string, example: ELIGIBLE }
+            redeemableBalance: { type: integer, format: int64 }
+            qualifyingBalance: { type: integer, format: int64 }
+            tier: { $ref: '#/components/schemas/TierRef' }
+
+    Balance:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            redeemableBalance: { type: integer, format: int64, description: Customer-facing spendable balance; may be negative. }
+            effectiveRedeemableBalance: { type: integer, format: int64, description: redeemableBalance minus active reservations. }
+            qualifyingBalance: { type: integer, format: int64, description: Tier-progress balance; not rendered as a raw number. }
+
+    LedgerEntry:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            entryId: { type: integer, format: int64 }
+            entryType: { type: string, enum: [Earned, Redeemed, Expired, Reversed, Adjusted] }
+            qualifyingDelta: { type: integer, format: int64 }
+            redeemableDelta: { type: integer, format: int64 }
+            reason: { type: string, nullable: true }
+            createdAt: { type: string, format: date-time }
+            expiresAt: { type: string, format: date-time, nullable: true }
+
+    TierRef:
+      type: object
+      properties:
+        tierId: { type: integer, format: int64, nullable: true }
+        name: { type: string, example: Gold }
+
+    TierState:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            currentTier: { $ref: '#/components/schemas/TierRef' }
+            nextTier: { $ref: '#/components/schemas/TierRef' }
+            qualifyingBalance: { type: integer, format: int64 }
+            pointsToNextTier: { type: integer, format: int64, nullable: true }
+            progressPercent: { type: number, format: float, minimum: 0, maximum: 100 }
+
+    RewardSummary:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            rewardId: { type: integer, format: int64 }
+            name: { type: string }
+            rewardTypeCode: { type: string, example: CASHBACK }
+            pointCost: { type: integer, format: int64 }
+            inventoryRemaining: { type: integer, format: int64, nullable: true }
+
+    Reward:
+      allOf:
+        - $ref: '#/components/schemas/RewardSummary'
+        - type: object
+          properties:
+            fulfillmentParams: { type: object, additionalProperties: true }
+            validityFrom: { type: string, format: date-time, nullable: true }
+            validityTo: { type: string, format: date-time, nullable: true }
+
+    RedemptionResult:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          required: [redemptionId, status]
+          properties:
+            redemptionId: { type: integer, format: int64 }
+            rewardId: { type: integer, format: int64 }
+            status:
+              type: string
+              enum: [PENDING, RESERVED, FULFILLING, COMPLETED, FAILED]
+            externalRef: { type: string, nullable: true, description: e.g. CASA txnRef or voucher code once available. }
+
+    CampaignSummary:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            campaignId: { type: integer, format: int64 }
+            name: { type: string }
+            startsAt: { type: string, format: date-time }
+            endsAt: { type: string, format: date-time }
+
+    DrawingEntry:
+      type: object
+      properties:
+        drawingId: { type: integer, format: int64 }
+        campaignId: { type: integer, format: int64 }
+        entryId: { type: integer, format: int64 }
+        isWinner: { type: boolean }
+        drawnAt: { type: string, format: date-time, nullable: true }
+
+    Problem:
+      type: object
+      description: RFC 7807 problem detail.
+      properties:
+        type: { type: string, format: uri, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string, description: 'Loyalty error code, e.g. STEP_UP_REQUIRED, BALANCE_NEGATIVE, TCS_NOT_ACCEPTED.' }

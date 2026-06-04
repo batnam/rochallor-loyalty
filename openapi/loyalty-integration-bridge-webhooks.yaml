@@ -1,0 +1,123 @@
+openapi: 3.0.3
+info:
+  title: loyalty-integration-bridge — Partner Webhooks (inbound)
+  version: '0.1.0'
+  x-api-tier: partner-inbound
+  description: |
+    **Partner-facing HTTPS ingress** exposed by `loyalty-integration-bridge`. This is the
+    one synchronous HTTP surface of an otherwise Kafka-only service: a 3rd-party **voucher fulfilment
+    partner** POSTs here to signal that an asynchronous voucher job is `READY` (or `FAILED`). The
+    Bridge verifies the signature, translates the body to the canonical
+    `loyalty.fulfillment.resume.v1` event, and produces it for `loyalty-redemption` to resume the
+    redemption saga. The Bridge writes no Ledger and holds no RDS.
+
+    Resolves open item **X-1** (3rd-Party Voucher Provider webhook spec). See
+    [integration-bridge L3 §6](../c4/level-3-loyalty-integration-bridge.md#6-external-edges-re-exposed-from-l2)
+    and the canonical event in [`loyalty-integration-bridge.yaml`](../asyncapi/loyalty-integration-bridge.yaml).
+
+    **Auth (threat DD-2):** HMAC-SHA256. The partner signs `"<X-Timestamp>.<raw-request-body>"` with
+    a shared secret and sends the hex digest in `X-Signature`. The Bridge recomputes and compares in
+    constant time, and rejects requests whose `X-Timestamp` falls outside a configurable replay
+    window (default 300s). Nonce-level replay dedup is deferred — it needs state, which the Bridge
+    avoids; the timestamp window is the stateless defence. TLS is terminated at the
+    ingress/load balancer.
+
+    **Idempotency:** the canonical event's id is deterministic (`voucher-resume:<jobHandle>:<status>`),
+    so a partner retry of the same job/status is de-duplicated downstream.
+  contact:
+    name: Loyalty Platform — Lead Solution Architect
+
+servers:
+  - url: https://webhooks.rdb.example/loyalty
+    description: Partner-facing HTTPS edge (TLS terminated at the ingress/LB).
+
+paths:
+  /webhooks/voucher:
+    post:
+      operationId: receiveVoucherCallback
+      summary: 3rd-party voucher partner reports a fulfilment outcome.
+      description: |
+        Verified by HMAC (see `voucherHmac`). On success the body becomes
+        `loyalty.fulfillment.resume.v1` and is produced to MSK; the HTTP response only acknowledges
+        receipt — fulfilment resumption is asynchronous.
+      security:
+        - voucherHmac: []
+      parameters:
+        - $ref: '#/components/parameters/XSignature'
+        - $ref: '#/components/parameters/XTimestamp'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoucherCallback'
+            examples:
+              ready:
+                summary: Voucher issued.
+                value:
+                  jobHandle: "JOB-123"
+                  status: "READY"
+                  voucherCode: "VCH-999"
+                  partnerRef: "partner-ref-1"
+              failed:
+                summary: Partner could not fulfil.
+                value:
+                  jobHandle: "JOB-123"
+                  status: "FAILED"
+      responses:
+        '202':
+          description: Accepted — translated and queued to `loyalty.fulfillment.resume.v1`. Body empty.
+        '400':
+          description: Malformed JSON, missing `jobHandle`, or `status` not in `{READY, FAILED}`.
+        '401':
+          description: Missing/invalid `X-Signature`, or `X-Timestamp` outside the replay window.
+
+components:
+  securitySchemes:
+    voucherHmac:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        Hex-encoded `HMAC-SHA256(sharedSecret, "<X-Timestamp>.<raw-body>")`. Paired with the
+        required `X-Timestamp` header (replay window). The shared secret is provisioned per partner
+        from the deployment secret store; rotation is an ops procedure (DD-2/DD-3).
+
+  parameters:
+    XSignature:
+      name: X-Signature
+      in: header
+      required: true
+      description: Hex HMAC-SHA256 of `"<X-Timestamp>.<raw-body>"`.
+      schema: { type: string }
+    XTimestamp:
+      name: X-Timestamp
+      in: header
+      required: true
+      description: Unix epoch seconds when the request was signed. Rejected if outside the replay window.
+      schema: { type: integer, format: int64 }
+
+  schemas:
+    VoucherCallback:
+      type: object
+      required: [jobHandle, status]
+      additionalProperties: false
+      properties:
+        jobHandle:
+          type: string
+          description: Matches `redemption_saga.job_handle` — the saga step awaiting fulfilment.
+          example: "JOB-123"
+        status:
+          type: string
+          enum: [READY, FAILED]
+          description: Outcome of the partner-side voucher job.
+        voucherCode:
+          type: string
+          nullable: true
+          description: The issued voucher code (present when `status = READY`).
+          example: "VCH-999"
+        partnerRef:
+          type: string
+          nullable: true
+          description: Partner's own reference for the job, for reconciliation/audit.
+          example: "partner-ref-1"

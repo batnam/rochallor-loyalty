@@ -1,0 +1,324 @@
+openapi: 3.0.3
+info:
+  title: loyalty-redemption — Internal API
+  version: '0.1.0'
+  x-api-tier: internal
+  description: |
+    **Internal service-to-service API.** Not exposed at the AWS API Gateway edge. Reached only
+    from inside the Loyalty EKS cluster over **mTLS**. Caller identity is the service mTLS
+    certificate; end-user AuthZ is the BFF's job.
+
+    This spec documents the surface that `loyalty-redemption` exposes per
+    [L3 §6](../../c4/level-3-loyalty-redemption.md#6-external-edges-re-exposed-from-l2):
+    the **submit-and-poll Redemption Saga** entry point (called by `loyalty-mobile-bff`), and the
+    **Reward catalogue / Reward Type catalogue** read + admin operations (called by both BFFs).
+
+    The Saga internals — reservation, adapter dispatch, async resume, commit / release — are not
+    exposed externally; they are L3 implementation detail. The Fulfillment Resume Kafka consumer
+    (`loyalty.fulfillment.resume.v1`) is documented in
+    [`docs/asyncapi/loyalty-redemption.yaml`](../../asyncapi/loyalty-redemption.yaml).
+
+    **Idempotency:** `POST /redemptions` requires an `Idempotency-Key` header; replays
+    return the original outcome (200 sync committed, 202 async pending, or 4xx error).
+
+    **Reward activation is approval-gated:** `PATCH /rewards/{rewardId}` with
+    `status=ACTIVE` or any `pointCost` change is raised as `REWARD_CHANGE` and applies on
+    `confirm` — `ARCHIVED` applies directly.
+  contact:
+    name: Loyalty Platform — Lead Solution Architect
+
+servers:
+  - url: https://loyalty-redemption.loyalty.svc.cluster.local
+    description: In-cluster service DNS (Kubernetes); mTLS-only.
+
+security:
+  - mtls: []
+
+tags:
+  - name: Redemptions
+    description: 'Internal-only. Two-phase redemption Saga entry / status.'
+  - name: Reward Types
+    description: 'Internal-only. Platform-seeded Reward Type catalogue read.'
+  - name: Rewards
+    description: 'Internal-only. Per-Program Reward catalogue read + admin.'
+
+paths:
+  /redemptions:
+    post:
+      tags: [Redemptions]
+      operationId: submitRedemption
+      x-internal: true
+      summary: Submit a redemption — runs the Saga (reserve → fulfil → commit).
+      description: |
+        Called by `loyalty-mobile-bff` on the customer-tap. Eligibility Engine gates before any
+        balance is touched. Synchronous adapters (Cashback, Bill-Payment Voucher, Sweepstakes)
+        return `200` with `status=COMMITTED`. Asynchronous adapter (3rd-Party Voucher) returns
+        `202` with `status=FULFILLING`; the client polls `GET /redemptions/{id}` while the
+        partner webhook resumes the Saga via Kafka.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RedemptionRequest' }
+      responses:
+        '200':
+          description: Saga COMMITTED synchronously.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Redemption' } } }
+        '202':
+          description: Saga FULFILLING — partner-dependent path. Poll status.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Redemption' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: 'Eligibility rejected, insufficient balance, or inventory exhausted.'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /redemptions/{redemptionId}:
+    get:
+      tags: [Redemptions]
+      operationId: getRedemption
+      x-internal: true
+      summary: Poll Saga state.
+      parameters: [ { $ref: '#/components/parameters/RedemptionId' } ]
+      responses:
+        '200':
+          description: Redemption state.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Redemption' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reward-types:
+    get:
+      tags: [Reward Types]
+      operationId: listRewardTypes
+      x-internal: true
+      summary: Platform-seeded Reward Type catalogue.
+      responses:
+        '200':
+          description: Reward types.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RewardType' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /programs/{programId}/rewards:
+    get:
+      tags: [Rewards]
+      operationId: listRewards
+      x-internal: true
+      summary: List Rewards for a Program (all statuses).
+      parameters:
+        - $ref: '#/components/parameters/ProgramId'
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+      responses:
+        '200':
+          description: Rewards.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Reward' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Rewards]
+      operationId: createReward
+      x-internal: true
+      summary: Author a new Reward (created as DRAFT).
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RewardCreateRequest' }
+      responses:
+        '201':
+          description: Reward created (DRAFT).
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reward' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /programs/{programId}/rewards/eligible:
+    get:
+      tags: [Rewards]
+      operationId: listEligibleRewards
+      x-internal: true
+      summary: List Rewards a specific member is eligible to redeem now.
+      description: 'Internal helper used by `loyalty-mobile-bff` for the customer Reward listing. Eligibility Engine filters by Tier, segment, currency, per-Member cap.'
+      parameters:
+        - $ref: '#/components/parameters/ProgramId'
+        - name: memberId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Eligible rewards.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Reward' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /rewards/{rewardId}:
+    get:
+      tags: [Rewards]
+      operationId: getReward
+      x-internal: true
+      summary: Reward detail (any status).
+      parameters: [ { $ref: '#/components/parameters/RewardId' } ]
+      responses:
+        '200':
+          description: Reward.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reward' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Rewards]
+      operationId: updateReward
+      x-internal: true
+      summary: Update Reward status / pointCost / inventory.
+      description: '`ACTIVE` transition and `pointCost` changes are **approval-gated** — `loyalty-admin-bff` raises a `REWARD_CHANGE` approval-request rather than calling this directly. `ARCHIVED` applies immediately. Inventory bumps are operational and apply directly.'
+      parameters: [ { $ref: '#/components/parameters/RewardId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:         { type: string, enum: [ACTIVE, ARCHIVED] }
+                pointCost:      { type: integer, format: int64, nullable: true }
+                inventoryTotal: { type: integer, format: int64, nullable: true }
+                bepApprovalRef: { type: string, nullable: true, description: 'Required when `status=ACTIVE` or `pointCost` is set.' }
+      responses:
+        '200':
+          description: Updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reward' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Illegal transition or missing approval reference.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+components:
+  securitySchemes:
+    mtls:
+      type: mutualTLS
+      description: Service-to-service mTLS only.
+
+  parameters:
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RewardId:
+      name: rewardId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RedemptionId:
+      name: redemptionId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    BadRequest:
+      description: Malformed request body.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Unauthorized:
+      description: Missing / invalid client certificate.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    NotFound:
+      description: Resource not found.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  schemas:
+    ProgramRef:
+      type: object
+      required: [programId, programCode]
+      properties:
+        programId:   { type: integer, format: int64 }
+        programCode: { type: string, maxLength: 32 }
+
+    RedemptionRequest:
+      type: object
+      required: [memberId, customerId, programId, rewardId]
+      properties:
+        memberId:  { type: integer, format: int64, description: 'Loyalty-internal member (ledger/saga actor).' }
+        customerId: { type: integer, format: int64, description: 'Host Bank customer identifier (CIF). The Payment Hub disbursement is addressed by CIF + accountNumber, never by memberId.' }
+        accountNumber: { type: string, nullable: true, description: 'Target CASA for a cashback credit (one CIF may own several). Required by the Cashback adapter; null for reward types that do not credit an account.' }
+        programId: { type: integer, format: int64 }
+        rewardId:  { type: integer, format: int64 }
+        stepUpToken: { type: string, nullable: true, description: 'Step-up token for high-value redemptions, forwarded by `loyalty-mobile-bff`.' }
+
+    Redemption:
+      type: object
+      properties:
+        redemptionId:   { type: integer, format: int64 }
+        memberId:       { type: integer, format: int64 }
+        rewardId:       { type: integer, format: int64 }
+        status:         { type: string, enum: [RESERVED, FULFILLING, COMMITTED, RELEASED, FAILED] }
+        ledgerEntryId:  { type: integer, format: int64, nullable: true, description: 'Non-null once `status=COMMITTED`.' }
+        externalRef:    { type: string, nullable: true, description: 'Adapter outcome reference (PaymentHub disbursement / voucher code / partner ref).' }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    RewardType:
+      type: object
+      properties:
+        rewardTypeCode:          { type: string, example: CASHBACK }
+        displayName:             { type: string }
+        fulfillmentAdapterClass: { type: string }
+        parameterSchema:         { type: object, additionalProperties: true }
+
+    Reward:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            rewardId:           { type: integer, format: int64 }
+            rewardTypeCode:     { type: string }
+            rewardRevision:     { type: integer }
+            name:               { type: string }
+            pointCost:          { type: integer, format: int64 }
+            status:             { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+            inventoryTotal:     { type: integer, format: int64, nullable: true }
+            inventoryRemaining: { type: integer, format: int64, nullable: true }
+            fulfillmentParams:  { type: object, additionalProperties: true }
+            eligibility:        { type: object, additionalProperties: true }
+
+    RewardCreateRequest:
+      type: object
+      required: [rewardTypeCode, name, pointCost]
+      properties:
+        rewardTypeCode:    { type: string }
+        name:              { type: string }
+        pointCost:         { type: integer, format: int64 }
+        fulfillmentParams: { type: object, additionalProperties: true }
+        eligibility:       { type: object, additionalProperties: true }
+        inventoryTotal:    { type: integer, format: int64, nullable: true }
+
+    Problem:
+      type: object
+      description: RFC 7807 Problem with a Loyalty-specific `code`.
+      properties:
+        type:     { type: string, format: uri }
+        title:    { type: string }
+        status:   { type: integer }
+        detail:   { type: string }
+        code:     { type: string, example: CAP_EXCEEDED }
+        instance: { type: string }

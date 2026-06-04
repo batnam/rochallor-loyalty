@@ -1,0 +1,15 @@
+{
+  "dslVersion": 1,
+  "earnSource": "CARD_SPEND",
+  "inputs": ["amount"],
+  "hitPolicy": "FIRST",
+  "tierMultiplier": true,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "amount": { "gte": 1 } },
+      "earn": { "type": "RATE", "perAmount": 1, "points": 1 }
+    }
+  ],
+  "caps": { "perMemberPerDay": 1000 }
+}

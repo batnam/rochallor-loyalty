@@ -1,0 +1,23 @@
+{
+  "dslVersion": 1,
+  "earnSource": "FUND_TRANSFER",
+  "inputs": ["paymentType", "amount", "currency"],
+  "hitPolicy": "FIRST",
+  "tierMultiplier": true,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "paymentType": "P2P_TRANSFER" },
+      "earn": { "type": "FIXED", "points": 0 }
+    },
+    {
+      "when": { "currency": "USD", "amount": { "gte": 1 } },
+      "earn": { "type": "RATE", "perAmount": 2, "points": 1 }
+    },
+    {
+      "when": { "currency": "VND", "amount": { "gte": 8000 } },
+      "earn": { "type": "RATE", "perAmount": 8000, "points": 1 }
+    }
+  ],
+  "caps": { "perEventMax": 250, "perMemberPerDay": 500 }
+}

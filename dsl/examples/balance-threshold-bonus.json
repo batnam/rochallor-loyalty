@@ -1,0 +1,15 @@
+{
+  "dslVersion": 1,
+  "earnSource": "BALANCE_THRESHOLD",
+  "inputs": ["balance", "currency"],
+  "hitPolicy": "FIRST",
+  "tierMultiplier": false,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "currency": "USD", "balance": { "gte": 5000 } },
+      "earn": { "type": "FIXED", "points": 500 }
+    }
+  ],
+  "caps": { "perMemberPerMonth": 500 }
+}

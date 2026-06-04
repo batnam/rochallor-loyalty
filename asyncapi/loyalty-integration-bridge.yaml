@@ -1,0 +1,217 @@
+asyncapi: '2.6.0'
+info:
+  title: loyalty-integration-bridge — Canonical & Cross-cutting Events
+  version: '0.1.0'
+  description: |
+    Events **published** by `loyalty-integration-bridge` — the Anti-Corruption Layer that
+    translates external producer events into canonical Loyalty events, plus the cross-cutting
+    fraud and fulfillment-resume channels. A `subscribe` operation describes a message
+    this application emits (AsyncAPI 2.x client-centric convention).
+
+    The Bridge *consumes* canonical external channels (`paymenthub.*`, `corebank.*`,
+    `customer.closed.v1` — see [`external-consumed.yaml`](external-consumed.yaml); the
+    deployment-actual Kafka topic each channel binds to is configured in the Bridge alias
+    config)
+    plus its
+    own `loyalty.earn.translated.v1` (Velocity Anomaly). It translates `paymenthub.payment_reversed.v1`
+    into the canonical `loyalty.payment.reversed.v1` (no stream-join — clawback is core-driven).
+    The full producer→consumer map is in [`docs/event-catalogue.md`](../event-catalogue.md). The Bridge
+    has no RDS and no outbox (consume → translate → produce with an idempotent producer; integration-bridge L3 §5).
+  contact:
+    name: Loyalty Platform — Lead Solution Architect
+defaultContentType: application/json
+
+servers:
+  msk:
+    url: b-1.loyalty-msk.<region>.amazonaws.com:9094
+    protocol: kafka-secure
+    description: Shared RDB MSK cluster.
+    security:
+      - mtls: []
+
+channels:
+  loyalty.earn.translated.v1:
+    description: |
+      Canonical EarnEvent — the **vocabulary owned by Loyalty** for "something earnable happened".
+      Produced in v1 by `loyalty-integration-bridge` only, by **validating an Ingress Event**
+      (`loyalty.ingress.*` — see [`loyalty-ingress.yaml`](loyalty-ingress.yaml)) and **stamping the
+      canonical `source`**.
+      Future producers (Mobile BFF for engagement events; `loyalty-earning` scheduler for
+      state-derived synthetic events) will join later. The `source` field is a canonical
+      `earn_source_code` from the `loyalty-earning.earn_source` registry.
+
+      **Customer-scoped**: carries
+      `customerId`, keyed on `customerId`, with **no `memberId` and no `programId`** — the Bridge
+      resolves neither. `loyalty-earning` resolves `customerId → Member(s)` and broadcasts to every
+      enrolled Program.
+    parameters:
+      customerId: { $ref: '#/components/parameters/customerId' }
+    subscribe:
+      operationId: emitEarnTranslated
+      summary: Bridge publishes; loyalty-earning and the Velocity Anomaly consumer subscribe.
+      message:
+        $ref: '#/components/messages/EarnEvent'
+
+  loyalty.member.lifecycle.v1:
+    description: Canonical Member-lifecycle event translated from customer.closed.v1 (and future lifecycle events).
+    parameters:
+      customerId: { $ref: '#/components/parameters/customerId' }
+    subscribe:
+      operationId: emitMemberLifecycle
+      summary: Bridge publishes; loyalty-core (Member-Lifecycle Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/MemberLifecycle'
+
+  loyalty.fraud.alert.v1:
+    description: |
+      Velocity-anomaly fraud alert derived from the translated earn stream (degraded-availability feature).
+      Customer-scoped — the Velocity Anomaly consumer reads the customer-scoped `loyalty.earn.translated.v1`,
+      so it detects and alerts per `customerId`; `loyalty-admin-bff` resolves the Member for display.
+    parameters:
+      customerId: { $ref: '#/components/parameters/customerId' }
+    subscribe:
+      operationId: emitFraudAlert
+      summary: Bridge publishes; loyalty-admin-bff (Fraud Ops) subscribes.
+      message:
+        $ref: '#/components/messages/FraudAlert'
+
+  loyalty.fulfillment.resume.v1:
+    description: 3rd-party voucher partner webhook, translated to a canonical resume signal.
+    subscribe:
+      operationId: emitFulfillmentResume
+      summary: Bridge publishes; loyalty-redemption (Resume Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/FulfillmentResume'
+
+  loyalty.payment.reversed.v1:
+    description: |
+      Canonical reversal event the Bridge produces from a reversal **Ingress Event** (the bank-side
+      adapter reports a reversal conforming to the Loyalty contract). `loyalty-core` consumes
+      it and reverses every ledger entry matching the original event's `source_ref` — **core-driven
+      clawback**. The Bridge does **not** join streams and never writes the Ledger
+      (single-writer, P5). Customer-scoped — the Bridge resolves no Member.
+    parameters:
+      customerId: { $ref: '#/components/parameters/customerId' }
+    subscribe:
+      operationId: emitPaymentReversed
+      summary: Bridge publishes; loyalty-core (Reversal Consumer) subscribes.
+      message:
+        $ref: '#/components/messages/ReversalEvent'
+
+components:
+  securitySchemes:
+    mtls:
+      type: X509
+      description: Service-to-service mutual TLS.
+
+  parameters:
+    customerId:
+      description: Partition key. The Bridge emits only customer-scoped events (no Member resolved); all channels here are keyed by customerId.
+      schema: { type: integer, format: int64 }
+
+  messages:
+    EarnEvent:
+      name: EarnEvent
+      messageId: EarnEvent
+      title: Translated Earn Event
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CustomerScopedEnvelope'
+          - type: object
+            required: [customerId, source, payload]
+            properties:
+              customerId: { type: integer, format: int64, description: 'Bank CIF; passed through from the Ingress Event. Member/program resolution happens in loyalty-earning.' }
+              source: { type: string, example: CARD_SPEND, description: earn_source_code. }
+              payload:
+                type: object
+                description: Source-specific normalized payload (e.g. spend amount/currency/mcc).
+                additionalProperties: true
+
+    MemberLifecycle:
+      name: MemberLifecycle
+      messageId: MemberLifecycle
+      title: Member Lifecycle Event
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CustomerScopedEnvelope'
+          - type: object
+            required: [customerId, lifecycleType]
+            properties:
+              customerId: { type: integer, format: int64 }
+              lifecycleType: { type: string, enum: [CUSTOMER_CLOSED] }
+
+    FraudAlert:
+      name: FraudAlert
+      messageId: FraudAlert
+      title: Velocity Fraud Alert
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CustomerScopedEnvelope'
+          - type: object
+            required: [customerId, anomalyType, detectedAt]
+            properties:
+              customerId: { type: integer, format: int64, description: 'Member resolution for display happens in loyalty-admin-bff.' }
+              anomalyType: { type: string, example: EARN_VELOCITY_SPIKE }
+              windowDays: { type: integer, example: 30 }
+              observedRate: { type: number }
+              threshold: { type: number }
+              detectedAt: { type: string, format: date-time }
+
+    FulfillmentResume:
+      name: FulfillmentResume
+      messageId: FulfillmentResume
+      title: Fulfillment Resume
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CustomerScopedEnvelope'
+          - type: object
+            required: [jobHandle, status]
+            properties:
+              jobHandle: { type: string, description: Matches redemption_saga.job_handle. }
+              voucherCode: { type: string, nullable: true }
+              partnerRef: { type: string, nullable: true }
+              status: { type: string, enum: [READY, FAILED] }
+
+    ReversalEvent:
+      name: ReversalEvent
+      messageId: ReversalEvent
+      title: Payment Reversal (canonical)
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CustomerScopedEnvelope'
+          - type: object
+            required: [customerId, reversalEventId, originalEventId]
+            properties:
+              customerId: { type: integer, format: int64, description: 'Bank CIF; passed through from the reversal Ingress Event. loyalty-core matches on source_ref, not customerId.' }
+              reversalEventId: { type: string, description: Reversal event id from the reversal Ingress Event. }
+              originalEventId: { type: string, description: 'eventId of the original earn event; loyalty-core reverses all entries whose source_ref matches "<originalEventId>:rule:%".' }
+              amount: { type: number, nullable: true }
+              currency: { type: string, nullable: true }
+              reversedAt: { type: string, format: date-time }
+
+  schemas:
+    EventHeaders:
+      type: object
+      required: [traceparent, source]
+      properties:
+        traceparent: { type: string, description: Propagated from the inbound Ingress Event (single distributed trace across the seam). }
+        source: { type: string, example: "ibank-kh-paymenthub", description: Producing-system id, propagated from the Ingress Event. }
+
+    CustomerScopedEnvelope:
+      type: object
+      description: |
+        Envelope for **customer-scoped** events the Bridge emits before member/program resolution.
+        Identical to
+        `Envelope` minus `programId` — the Bridge resolves no Program, so it cannot stamp one;
+        `programId` is added downstream by the resolving service (`loyalty-earning`).
+      required: [eventId, eventType, occurredAt, schemaVersion]
+      properties:
+        eventId: { type: string, description: 'Carried through from the Ingress Event eventId; consumer idempotency key.' }
+        eventType: { type: string }
+        occurredAt: { type: string, format: date-time }
+        schemaVersion: { type: integer, example: 1 }

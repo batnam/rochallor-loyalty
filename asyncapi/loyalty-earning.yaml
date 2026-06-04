@@ -1,0 +1,117 @@
+asyncapi: '2.6.0'
+info:
+  title: loyalty-earning — Domain Events
+  version: '0.1.0'
+  description: |
+    Events **published** by `loyalty-earning`. Per the AsyncAPI 2.x client-centric
+    convention, a `subscribe` operation describes a message this application *emits*
+    (downstream services subscribe to receive it). Consumption relationships are in
+    [`docs/event-catalogue.md`](../event-catalogue.md).
+
+    Transport: shared MSK (Kafka). **JSON Schema, no schema registry**; backward-compatibility
+    enforced in CI. Topic naming: `loyalty.<context>.<event_type>.v<n>`.
+  contact:
+    name: Loyalty Platform — Lead Solution Architect
+defaultContentType: application/json
+
+servers:
+  msk:
+    url: b-1.loyalty-msk.<region>.amazonaws.com:9094
+    protocol: kafka-secure
+    description: Shared RDB MSK cluster; Loyalty restricted to loyalty.* producer ACLs.
+    security:
+      - mtls: []
+
+channels:
+  loyalty.earning.points_earned.v1:
+    description: Emitted once per Earn Event after the Earned Ledger entries are written (Arch §4.6.1).
+    parameters:
+      memberId:
+        $ref: '#/components/parameters/memberId'
+    subscribe:
+      operationId: emitPointsEarned
+      summary: loyalty-earning publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/PointsEarned'
+
+# Note: refund clawback is core-driven — the compensating Reversed
+# entries and `loyalty.ledger.points_clawed_back.v1` are emitted by loyalty-core,
+# not loyalty-earning. See asyncapi/loyalty-core.yaml.
+
+components:
+  securitySchemes:
+    mtls:
+      type: X509
+      description: Service-to-service mutual TLS.
+
+  parameters:
+    memberId:
+      description: Partition key — events are partitioned by memberId.
+      schema:
+        type: integer
+        format: int64
+
+  messages:
+    PointsEarned:
+      name: PointsEarned
+      messageId: PointsEarned
+      title: Points Earned
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, totalQualifyingDelta, totalRedeemableDelta, entryIds, sourceEventId]
+            properties:
+              memberId:
+                type: integer
+                format: int64
+              totalQualifyingDelta:
+                type: integer
+                format: int64
+                description: Sum of qualifying_delta across all entries written for this Earn Event.
+              totalRedeemableDelta:
+                type: integer
+                format: int64
+              entryIds:
+                type: array
+                items: { type: integer, format: int64 }
+                description: point_ledger.entry_id values written (one per matching rule).
+              sourceEventId:
+                type: string
+                description: Originating EarnEvent eventId (idempotency lineage).
+
+  schemas:
+    EventHeaders:
+      type: object
+      properties:
+        traceparent:
+          type: string
+          description: W3C trace context propagated from the originating event (bridge L3).
+        source:
+          type: string
+          example: loyalty-earning
+      required: [traceparent, source]
+
+    Envelope:
+      type: object
+      description: Common fields on every loyalty.* domain event (Arch §4.2.4).
+      required: [eventId, eventType, occurredAt, programId, schemaVersion]
+      properties:
+        eventId:
+          type: string
+          description: Globally-unique id for this event; idempotency key for consumers.
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        programId:
+          type: integer
+          format: int64
+          description: Always present from v1 even though only one Program is seeded.
+        schemaVersion:
+          type: integer
+          example: 1
