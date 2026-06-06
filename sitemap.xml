@@ -1,123 +1,123 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/USER-GUIDE/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/USER-GUIDE/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/domain-context/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/domain-context/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/enterprise-architect/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/enterprise-architect/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/asyncapi/INGRESS-CONTRACT/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/asyncapi/INGRESS-CONTRACT/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-1-system-context/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-1-system-context/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-2-containers/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-2-containers/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-admin-bff/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-admin-bff/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-campaign/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-campaign/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-core/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-core/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-earning/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-earning/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-integration-bridge/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-integration-bridge/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-mobile-bff/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-mobile-bff/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/c4/level-3-loyalty-redemption/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/c4/level-3-loyalty-redemption/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-admin-bff/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-admin-bff/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-campaign/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-campaign/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-core/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-core/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-earning/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-earning/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-integration-bridge/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-integration-bridge/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-mobile-bff/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-mobile-bff/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/services/loyalty-redemption/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/services/loyalty-redemption/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/api-catalogue/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/api-catalogue/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/bep-wireframes/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/bep-wireframes/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/customer-journey-maps/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/customer-journey-maps/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/data-catalogue/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/data-catalogue/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/event-catalogue/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/event-catalogue/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/open-items-v1-earning/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/open-items-v1-earning/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/sample-dsl-library/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/sample-dsl-library/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/test-strategy/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/test-strategy/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
-         <loc>https://batnam.github.io/rochallor-loyalty-platform/supporting-artifacts/threat-model/</loc>
+         <loc>https://batnam.github.io/rochallor-loyalty/supporting-artifacts/threat-model/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
 </urlset>
