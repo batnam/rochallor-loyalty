@@ -23,7 +23,7 @@ info:
     of an `EarnEvent`, a `commit()`, or a `release()` are silent no-ops returning the original
     result. The Ledger enforces `(sourceRef, entryType)` uniqueness as a second line of defence.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://loyalty-core.loyalty.svc.cluster.local

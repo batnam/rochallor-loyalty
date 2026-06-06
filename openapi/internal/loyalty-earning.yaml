@@ -23,7 +23,7 @@ info:
     is not idempotent — it raises an `ApprovalRequest` of type `RULE_ACTIVATION` and only applies
     on `confirm`. `ARCHIVED` applies directly.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://loyalty-earning.loyalty.svc.cluster.local

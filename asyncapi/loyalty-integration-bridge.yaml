@@ -18,7 +18,7 @@ info:
     The full producer→consumer map is in [`docs/event-catalogue.md`](../event-catalogue.md). The Bridge
     has no RDS and no outbox (consume → translate → produce with an idempotent producer; integration-bridge L3 §5).
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 defaultContentType: application/json
 
 servers:

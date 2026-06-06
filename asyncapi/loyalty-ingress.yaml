@@ -40,7 +40,7 @@ info:
     Serialization: JSON (Spring Kafka `JsonSerializer`/`JsonDeserializer`),
     JSON Schema, no registry.
   contact:
-    name: Loyalty Platform — Lead Solution Architect (contract owner)
+    name: Loyalty Platform —  (contract owner)
 defaultContentType: application/json
 
 servers:

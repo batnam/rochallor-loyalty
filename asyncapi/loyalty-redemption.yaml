@@ -11,7 +11,7 @@ info:
 
     Transport: shared MSK (Kafka). Topic naming: `loyalty.<context>.<event_type>.v<n>`.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 defaultContentType: application/json
 
 servers:

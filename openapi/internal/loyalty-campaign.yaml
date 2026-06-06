@@ -22,7 +22,7 @@ info:
     multipliers is **economic** — `loyalty-admin-bff` raises a `TIER_CHANGE` / Campaign-activation
     approval-request rather than calling `PATCH` directly with `status=ACTIVE`.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://loyalty-campaign.loyalty.svc.cluster.local

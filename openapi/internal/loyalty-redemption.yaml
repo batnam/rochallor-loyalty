@@ -25,7 +25,7 @@ info:
     `status=ACTIVE` or any `pointCost` change is raised as `REWARD_CHANGE` and applies on
     `confirm` — `ARCHIVED` applies directly.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://loyalty-redemption.loyalty.svc.cluster.local

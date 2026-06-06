@@ -29,7 +29,7 @@ info:
     L3 §3.2). ACLs (canonical channel families): `paymenthub.*`, `corebank.*`, `customer.*` —
     each binding to a deployment-actual topic via the Bridge alias config.
   contact:
-    name: Loyalty Platform — Lead Solution Architect (reference only; producers own these)
+    name: Loyalty Platform —  (reference only; producers own these)
 defaultContentType: application/json
 
 servers:

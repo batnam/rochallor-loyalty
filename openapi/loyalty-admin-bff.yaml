@@ -24,7 +24,7 @@ info:
     **Program lifecycle is NOT here:** create/activate/sunset/close a Program is a migration,
     not a BEP operation. This API configures already-created Programs.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://api.rdb.example/api/loyalty/admin

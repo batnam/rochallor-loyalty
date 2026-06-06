@@ -19,7 +19,7 @@ info:
     **Idempotency:** `POST /redemptions` requires an `Idempotency-Key` header; retries
     on poor connectivity must not create duplicate reservations.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://api.rdb.example/api/loyalty/mobile

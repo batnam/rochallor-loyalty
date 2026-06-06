@@ -25,7 +25,7 @@ info:
     **Idempotency:** the canonical event's id is deterministic (`voucher-resume:<jobHandle>:<status>`),
     so a partner retry of the same job/status is de-duplicated downstream.
   contact:
-    name: Loyalty Platform — Lead Solution Architect
+    name: Loyalty Platform — 
 
 servers:
   - url: https://webhooks.rdb.example/loyalty
