@@ -1,0 +1,109 @@
+asyncapi: '2.6.0'
+info:
+  title: loyalty-redemption — Domain Events
+  version: '0.1.0'
+  description: |
+    Events **published** by `loyalty-redemption` (Reward + Fulfillment contexts). A
+    `subscribe` operation describes a message this application emits (AsyncAPI 2.x
+    client-centric convention). `loyalty-redemption` *consumes*
+    `loyalty.fulfillment.resume.v1` (3rd-party voucher webhook resume); consumption is
+    mapped in [`docs/event-catalogue.md`](../event-catalogue.md).
+
+    Transport: shared MSK (Kafka). Topic naming: `loyalty.<context>.<event_type>.v<n>`.
+  contact:
+    name: Loyalty Platform — 
+defaultContentType: application/json
+
+servers:
+  msk:
+    url: b-1.loyalty-msk.<region>.amazonaws.com:9094
+    protocol: kafka-secure
+    description: Shared RDB MSK cluster; loyalty.* producer ACLs.
+    security:
+      - mtls: []
+
+channels:
+  loyalty.redemption.completed.v1:
+    description: A redemption committed successfully (sync or async fulfillment) — Arch §4.6.2/§4.6.3.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitRedemptionCompleted
+      summary: loyalty-redemption publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/RedemptionCompleted'
+
+  loyalty.redemption.failed.v1:
+    description: A redemption was released/failed (TTL expiry or partner failure) and points returned — Arch §4.6.3.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitRedemptionFailed
+      summary: loyalty-redemption publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/RedemptionFailed'
+
+components:
+  securitySchemes:
+    mtls:
+      type: X509
+      description: Service-to-service mutual TLS.
+
+  parameters:
+    memberId:
+      description: Partition key — partitioned by memberId.
+      schema: { type: integer, format: int64 }
+
+  messages:
+    RedemptionCompleted:
+      name: RedemptionCompleted
+      messageId: RedemptionCompleted
+      title: Redemption Completed
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [redemptionId, memberId, rewardId, completedAt]
+            properties:
+              redemptionId: { type: integer, format: int64, description: redemption_saga.saga_id. }
+              memberId: { type: integer, format: int64 }
+              rewardId: { type: integer, format: int64 }
+              rewardTypeCode: { type: string, example: CASHBACK }
+              externalRef: { type: string, nullable: true, description: 'Partner/voucher reference (e.g. CASA txnRef, voucher code).' }
+              completedAt: { type: string, format: date-time }
+
+    RedemptionFailed:
+      name: RedemptionFailed
+      messageId: RedemptionFailed
+      title: Redemption Failed
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [redemptionId, memberId, rewardId, reason, failedAt]
+            properties:
+              redemptionId: { type: integer, format: int64 }
+              memberId: { type: integer, format: int64 }
+              rewardId: { type: integer, format: int64 }
+              reason: { type: string, enum: [RESERVATION_TTL_EXPIRED, PARTNER_FAILURE, ELIGIBILITY_REJECTED] }
+              failedAt: { type: string, format: date-time }
+
+  schemas:
+    EventHeaders:
+      type: object
+      required: [traceparent, source]
+      properties:
+        traceparent: { type: string }
+        source: { type: string, example: loyalty-redemption }
+
+    Envelope:
+      type: object
+      required: [eventId, eventType, occurredAt, programId, schemaVersion]
+      properties:
+        eventId: { type: string }
+        eventType: { type: string }
+        occurredAt: { type: string, format: date-time }
+        programId: { type: integer, format: int64 }
+        schemaVersion: { type: integer, example: 1 }

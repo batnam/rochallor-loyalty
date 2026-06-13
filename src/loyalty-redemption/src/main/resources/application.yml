@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: loyalty-redemption
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/loyalty_redemption}
+    username: ${DB_USER:loyalty}
+    password: ${DB_PASSWORD:loyalty}
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Flyway owns the schema; Hibernate only validates the mapping
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: loyalty-redemption
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    listener:
+      ack-mode: record
+
+# Canonical channel names + outbound endpoints. A deployment may override via env/config.
+redemption:
+  topics:
+    fulfillment-resume: loyalty.fulfillment.resume.v1  # consumed (3rd-party voucher webhook, via bridge)
+    redemption-completed: loyalty.redemption.completed.v1  # produced
+    redemption-failed: loyalty.redemption.failed.v1        # produced
+  # v1 single Program, 1:1 customer<->member. programId carried on every request.
+  default-program-id: 1
+  # Outbound dependencies (mTLS in-cluster; plain http for local/test). Adapters + Ledger Client.
+  core:
+    base-url: ${CORE_BASE_URL:http://localhost:8081}
+  payment-hub:
+    base-url: ${PAYMENT_HUB_BASE_URL:http://localhost:9101}
+  voucher-partner:
+    base-url: ${VOUCHER_PARTNER_BASE_URL:http://localhost:9102}
+  campaign:
+    base-url: ${CAMPAIGN_BASE_URL:http://localhost:8084}
+  # default reservation TTL handed to core; per-Reward override deferred.
+  reservation-ttl-seconds: 900
+  outbox:
+    relay-batch-size: 100
+
+logging:
+  level:
+    io.github.batnam.loyalty.redemption: DEBUG

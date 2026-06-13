@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:loyalty:ingress:card_spend:v1",
+  "title": "Settled Card Spend (ingress)",
+  "description": "Loyalty Integration Contract — Layer 1, customer-scoped (ADR-0025). Tolerant reader: additionalProperties allowed (ADR-0014).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["eventId", "customerId", "occurredAt", "amount", "currency", "schemaVersion"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bank-stable, globally-unique idempotency key."
+    },
+    "customerId": {
+      "type": "integer",
+      "description": "Bank CIF / customer identifier."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Settlement timestamp."
+    },
+    "amount": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Settled amount in `currency`, debited perspective."
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["USD", "VND"]
+    },
+    "mcc": {
+      "type": ["string", "null"]
+    },
+    "merchantId": {
+      "type": ["string", "null"]
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    }
+  }
+}

@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: loyalty-admin-bff
+
+server:
+  # AWS API Gateway routes /api/loyalty/admin/* here; the gateway strips the prefix, so the BFF serves
+  # the bare paths (/members, /approval-requests, /fraud/alerts, ...).
+  port: ${SERVER_PORT:8091}
+
+# Outbound dependencies the BFF aggregates (mTLS in-cluster; plain http for local/test). A deployment
+# overrides these via env/config.
+admin-bff:
+  core:
+    base-url: ${CORE_BASE_URL:http://localhost:8081}
+  earning:
+    base-url: ${EARNING_BASE_URL:http://localhost:8082}
+  redemption:
+    base-url: ${REDEMPTION_BASE_URL:http://localhost:8083}
+  campaign:
+    base-url: ${CAMPAIGN_BASE_URL:http://localhost:8084}
+  bridge:
+    base-url: ${BRIDGE_BASE_URL:http://localhost:8085}
+
+logging:
+  level:
+    io.github.batnam.loyalty.adminbff: DEBUG

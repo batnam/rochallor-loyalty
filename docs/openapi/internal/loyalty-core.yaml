@@ -1,0 +1,305 @@
+openapi: 3.0.3
+info:
+  title: loyalty-core — Internal API
+  version: '0.1.0'
+  x-api-tier: internal
+  description: |
+    **Internal service-to-service API.** Not exposed at the AWS API Gateway edge. Reached only
+    from inside the Loyalty EKS cluster over **mTLS** between sibling services. There is no
+    end-user JWT on these calls; caller identity is the service mTLS certificate, and per-call
+    AuthZ is enforced by Kubernetes NetworkPolicy + service-account scoping (Arch §7.1).
+
+    This spec documents the surface that `loyalty-core` exposes to its sibling services per
+    [L3 §6 of `loyalty-core`](../../c4/level-3-loyalty-core.md#6-external-edges-re-exposed-from-l2):
+    the **Ledger API** (called by `loyalty-earning` on every matching rule fire), the
+    **Reservation API** (called by `loyalty-redemption`'s Saga), and the read-side
+    **Member projection** the Eligibility Engine consults before a `reserve()`.
+
+    **Read-side endpoints used by BFFs** (Membership detail, Ledger pagination, balances) are
+    intentionally **out of scope here** — they are part of each BFF's aggregation surface and
+    are described in the BFF OpenAPI specs / [`api-catalogue.md`](../../supporting-artifacts/api-catalogue.md).
+
+    **Idempotency:** every write below requires an idempotency key. Replays
+    of an `EarnEvent`, a `commit()`, or a `release()` are silent no-ops returning the original
+    result. The Ledger enforces `(sourceRef, entryType)` uniqueness as a second line of defence.
+  contact:
+    name: Loyalty Platform — 
+
+servers:
+  - url: https://loyalty-core.loyalty.svc.cluster.local
+    description: In-cluster service DNS (Kubernetes); mTLS-only.
+
+security:
+  - mtls: []
+
+tags:
+  - name: Ledger
+    description: 'Internal-only. Append-only Point Ledger writes (Earn). Single writer: `loyalty-core`. Called by `loyalty-earning` on every matching rule fire.'
+  - name: Reservations
+    description: 'Internal-only. Two-phase redemption: reserve → commit / release. Called by `loyalty-redemption`''s Saga.'
+  - name: Projections
+    description: 'Internal-only. Read-side member balance / tier projection for Eligibility checks before a reserve.'
+
+paths:
+  /ledger/earn:
+    post:
+      tags: [Ledger]
+      operationId: postLedgerEarn
+      x-internal: true
+      summary: Append an `Earned` Ledger entry for a matched rule.
+      description: |
+        Called by `loyalty-earning` once per matching rule fire (multi-rule sum — each rule writes
+        its own entry with `sourceRef = eventId + ruleId`). Single Postgres transaction: insert
+        `point_ledger` + update Member balance projection + consume cohort if applicable + enqueue
+        outbox row for `loyalty.ledger.PointsEarned`. Idempotent on `(sourceRef, entryType=Earned)`
+        **and** on `Idempotency-Key` — replays return the original entry.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EarnRequest' }
+      responses:
+        '201':
+          description: Ledger entry written.
+          content: { application/json: { schema: { $ref: '#/components/schemas/LedgerEntry' } } }
+        '200':
+          description: Idempotent replay — returns the previously-written entry.
+          content: { application/json: { schema: { $ref: '#/components/schemas/LedgerEntry' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /reservations:
+    post:
+      tags: [Reservations]
+      operationId: createReservation
+      x-internal: true
+      summary: Reserve points for a redemption (Phase 1).
+      description: |
+        Called by `loyalty-redemption`'s Saga after Eligibility passes. Inserts a `point_reservation`
+        row with `status=HELD`, decrements the redeemable balance projection by `points`, sets a
+        TTL (default per-Reward, swept by `Reservation TTL Sweeper` inside `loyalty-core`).
+        Idempotent on `Idempotency-Key` — a replay returns the existing reservation.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationRequest' }
+      responses:
+        '201':
+          description: Reservation created (HELD).
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reservation' } } }
+        '200':
+          description: Idempotent replay — returns the existing reservation.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reservation' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Insufficient balance.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /reservations/{reservationId}/commit:
+    post:
+      tags: [Reservations]
+      operationId: commitReservation
+      x-internal: true
+      summary: Commit a held reservation — writes a `Redeemed` Ledger entry (Phase 2).
+      description: |
+        Called by the Saga after the Fulfillment Adapter returns `SUCCESS`. Single transaction:
+        transition reservation to `COMMITTED`, insert immutable `Redeemed` Ledger entry, finalise
+        balance projection, enqueue outbox for `loyalty.ledger.PointsRedeemed`. Idempotent on
+        `reservationId` — a second commit returns the original entry.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [externalRef]
+              properties:
+                externalRef: { type: string, description: 'Adapter outcome reference (e.g. PaymentHub disbursement ID, voucher SKU).' }
+      responses:
+        '200':
+          description: Committed.
+          content: { application/json: { schema: { $ref: '#/components/schemas/LedgerEntry' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Reservation not found.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '409':
+          description: Not in HELD state (already committed / released / expired).
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /reservations/{reservationId}/release:
+    post:
+      tags: [Reservations]
+      operationId: releaseReservation
+      x-internal: true
+      summary: Release a held reservation — no Ledger entry, balance restored.
+      description: |
+        Called by the Saga on Adapter `FAILURE`, or by the in-pod Reservation TTL Sweeper when the
+        reservation aged past its TTL. Idempotent on `reservationId`. Never writes a Ledger entry.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Released.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Reservation' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Reservation not found.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '409':
+          description: Not in HELD state.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /members/{memberId}/programs/{programId}/projection:
+    get:
+      tags: [Projections]
+      operationId: getMemberProjection
+      x-internal: true
+      summary: Read-side balance + tier projection for Eligibility checks.
+      description: |
+        Called by `loyalty-redemption`'s Eligibility Engine before `reserve()` — needed to gate Tier
+        / segment / per-Member-cap rules cheaply without touching the Ledger. Read-only.
+      parameters:
+        - $ref: '#/components/parameters/MemberId'
+        - $ref: '#/components/parameters/ProgramId'
+      responses:
+        '200':
+          description: Projection.
+          content: { application/json: { schema: { $ref: '#/components/schemas/MemberProjection' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Member not enrolled in program.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+components:
+  securitySchemes:
+    mtls:
+      type: mutualTLS
+      description: |
+        Service-to-service mTLS only. Client certificate is the calling service's Kubernetes
+        service-account identity, signed by the in-cluster CA. No end-user JWT is forwarded on
+        internal hops — the caller acts as itself, not on behalf of any user.
+
+  parameters:
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ReservationId:
+      name: reservationId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, maxLength: 128 }
+      description: 'Stable key across replays of the same logical write. Required on every write.'
+
+  responses:
+    BadRequest:
+      description: Malformed request body.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Unauthorized:
+      description: Missing / invalid client certificate.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  schemas:
+    ProgramRef:
+      type: object
+      required: [programId, programCode]
+      properties:
+        programId:   { type: integer, format: int64 }
+        programCode: { type: string, maxLength: 32, example: RDB_REWARDS }
+
+    EarnRequest:
+      type: object
+      required: [memberId, programId, sourceRef, qualifyingDelta, redeemableDelta, earnSourceCode]
+      properties:
+        memberId:        { type: integer, format: int64 }
+        programId:       { type: integer, format: int64 }
+        earnSourceCode:  { type: string, example: CARD_SPEND, description: 'Canonical Earn Source.' }
+        sourceRef:       { type: string, description: 'Bridge-translated `eventId + ruleId`. Uniqueness key — `(sourceRef, entryType=Earned)` is enforced at the table level.' }
+        qualifyingDelta: { type: integer, format: int64, description: Points toward Tier qualification. }
+        redeemableDelta: { type: integer, format: int64, description: Points spendable in redemption. }
+        currency:        { type: string, example: USD, nullable: true, description: 'Debited-perspective currency from the original event; USD or VND for Cambodia.' }
+        occurredAt:      { type: string, format: date-time }
+
+    LedgerEntry:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            entryId:         { type: integer, format: int64 }
+            memberId:        { type: integer, format: int64 }
+            entryType:       { type: string, enum: [Earned, Redeemed, Expired, Reversed, Adjusted] }
+            qualifyingDelta: { type: integer, format: int64 }
+            redeemableDelta: { type: integer, format: int64 }
+            sourceRef:       { type: string }
+            createdAt:       { type: string, format: date-time }
+
+    ReservationRequest:
+      type: object
+      required: [memberId, programId, points]
+      properties:
+        memberId:  { type: integer, format: int64 }
+        programId: { type: integer, format: int64 }
+        points:    { type: integer, format: int64, minimum: 1 }
+        rewardId:  { type: integer, format: int64, nullable: true, description: 'For audit + TTL lookup; not used by Ledger semantics.' }
+        ttlSeconds: { type: integer, nullable: true, description: 'Per-Reward TTL override; null = use platform default.' }
+
+    Reservation:
+      type: object
+      properties:
+        reservationId: { type: integer, format: int64 }
+        memberId:      { type: integer, format: int64 }
+        programId:     { type: integer, format: int64 }
+        points:        { type: integer, format: int64 }
+        status:        { type: string, enum: [HELD, COMMITTED, RELEASED, EXPIRED] }
+        expiresAt:     { type: string, format: date-time }
+
+    MemberProjection:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            memberId:           { type: integer, format: int64 }
+            redeemableBalance:  { type: integer, format: int64 }
+            qualifyingBalance:  { type: integer, format: int64 }
+            tierCode:           { type: string, nullable: true }
+            status:             { type: string, enum: [ACTIVE, SUSPENDED_TCS, OPTED_OUT, CLOSED] }
+            asOf:               { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: RFC 7807 Problem with a Loyalty-specific `code`.
+      properties:
+        type:     { type: string, format: uri }
+        title:    { type: string }
+        status:   { type: integer }
+        detail:   { type: string }
+        code:     { type: string, example: BALANCE_NEGATIVE }
+        instance: { type: string }

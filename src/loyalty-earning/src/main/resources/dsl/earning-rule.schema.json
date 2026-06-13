@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loyalty.rdb.example/dsl/earning-rule.schema.json",
+  "title": "Loyalty Earning Rule DSL",
+  "description": "Canonical decision-table form of an Earning Rule's dsl_json (ADR-0002). Constrained and non-Turing-complete: a flat field->condition predicate per row (implicit AND), a fixed vocabulary of comparison operators, two earn formula types, and a closed set of caps. Validated at save by loyalty-earning's Rule Engine.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dslVersion", "earnSource", "rows"],
+  "properties": {
+    "dslVersion": { "const": 1 },
+    "earnSource": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "Must match an existing earn_source.earn_source_code."
+    },
+    "inputs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Declarative list of event-payload fields the rows reference (drives the decision-table UI). Informational."
+    },
+    "hitPolicy": {
+      "enum": ["FIRST", "COLLECT"],
+      "default": "FIRST",
+      "description": "FIRST: the first matching row wins and evaluation stops. COLLECT: every matching row's earn is summed."
+    },
+    "tierMultiplier": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, the row's computed points are multiplied by the member's current tier benefits.multiplier before rounding and perEventMax."
+    },
+    "rounding": {
+      "enum": ["FLOOR", "ROUND", "CEIL"],
+      "default": "FLOOR",
+      "description": "Applied to the per-row points after rate and tier-multiplier math."
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/row" }
+    },
+    "caps": { "$ref": "#/$defs/caps" }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when", "earn"],
+      "properties": {
+        "when": { "$ref": "#/$defs/predicate" },
+        "earn": { "$ref": "#/$defs/earn" }
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Field -> condition map. Multiple fields are ANDed. Use a row whose only condition is \"*\" as the catch-all / else branch.",
+      "additionalProperties": { "$ref": "#/$defs/condition" }
+    },
+    "condition": {
+      "anyOf": [
+        {
+          "description": "Equality shorthand, or \"*\" wildcard (matches anything).",
+          "type": ["string", "number", "boolean"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "eq": {},
+            "ne": {},
+            "in": { "type": "array", "minItems": 1 },
+            "nin": { "type": "array", "minItems": 1 },
+            "gt": { "type": "number" },
+            "gte": { "type": "number" },
+            "lt": { "type": "number" },
+            "lte": { "type": "number" },
+            "between": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[low, high], inclusive."
+            }
+          }
+        }
+      ]
+    },
+    "earn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["RATE", "FIXED"] },
+        "perAmount": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "RATE only: denominator in the same units as the event amount field (e.g. 1 = per 1 currency unit)."
+        },
+        "points": {
+          "type": "number",
+          "minimum": 0,
+          "description": "RATE: points awarded per perAmount unit. FIXED: flat points awarded when the row matches."
+        },
+        "balances": {
+          "type": "array",
+          "items": { "enum": ["qualifying", "redeemable"] },
+          "uniqueItems": true,
+          "minItems": 1,
+          "default": ["qualifying", "redeemable"],
+          "description": "Which balance(s) receive the delta. Defaults to both."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "RATE" } } },
+          "then": { "required": ["perAmount", "points"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "FIXED" } } },
+          "then": { "required": ["points"] }
+        }
+      ]
+    },
+    "caps": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Closed set of caps. perEventMax is stateless; the per-member caps are accumulated in cap_counter (programId, ruleId, memberId, window_key).",
+      "properties": {
+        "perEventMax": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Max points this rule may award from a single event."
+        },
+        "perMemberPerDay": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Max points this RULE may award one member per calendar day. Per-rule only; the Program-level Source-Aggregate cap (across a source's rules) is enforced outside the DSL (ADR-0013)."
+        },
+        "perMemberPerMonth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Max points this rule may award one member per calendar month."
+        },
+        "perMemberPerRule": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Lifetime cap per member for this rule. 1 models a one-time award (welcome bonus); null = unlimited."
+        }
+      }
+    }
+  }
+}

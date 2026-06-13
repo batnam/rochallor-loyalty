@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: loyalty-mobile-bff
+
+server:
+  # AWS API Gateway routes /api/loyalty/mobile/* here; the gateway strips the prefix, so the BFF
+  # serves the bare paths (/me/programs, /redemptions, ...).
+  port: ${SERVER_PORT:8090}
+
+# Outbound dependencies the BFF aggregates (mTLS in-cluster; plain http for local/test). A deployment
+# overrides these via env/config.
+mobile-bff:
+  core:
+    base-url: ${CORE_BASE_URL:http://localhost:8081}
+  redemption:
+    base-url: ${REDEMPTION_BASE_URL:http://localhost:8083}
+  campaign:
+    base-url: ${CAMPAIGN_BASE_URL:http://localhost:8084}
+
+logging:
+  level:
+    io.github.batnam.loyalty.mobilebff: DEBUG

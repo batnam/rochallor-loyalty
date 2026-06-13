@@ -1,0 +1,748 @@
+openapi: 3.0.3
+info:
+  title: loyalty-admin-bff — Bank Employee Portal API
+  version: '0.1.0'
+  description: |
+    Employee-facing edge API for the Rochallor Loyalty Platform, consumed by the Bank Employee
+    Portal (BEP) via AWS API Gateway under `/api/loyalty/admin/*`. Aggregates `loyalty-core`,
+    `loyalty-earning`, `loyalty-redemption`, and `loyalty-campaign` (Arch §4.2.2).
+
+    **Auth:** the RDB Authentication Service verifies the employee token and injects the actor into the
+    request as the `userId` + comma-separated `roles` query parameters before it reaches the BFF; the BFF
+    does no token handling. Loyalty roles gate operations (Arch §7.1): `loyalty-cs-maker`,
+    `loyalty-cs-checker`, `loyalty-campaign-manager`, `loyalty-fraud-ops`, `loyalty-admin`,
+    `loyalty-readonly`. The employee `userId` is distinct from the `customerId` (CIF) that member-scoped
+    endpoints act on. Per-Program scope is enforced via `PROGRAM_ADMIN` assignment; a maker-checker action
+    in Program A cannot affect Program B.
+
+    **Approvals:** Loyalty does **not** implement maker-checker. Money-equivalent and
+    economic-config changes (adjustments, rule/reward/tier/T&Cs activation) are raised via
+    `POST /approval-requests` and applied via `POST /approval-requests/{id}/confirm` once the bank's
+    **BEP Approval Workflow** approves. BEP owns routing, Job Roles, 4-eyes, and caps; Loyalty stores
+    only a `bepApprovalRef`. The negative-balance policy is unchanged.
+
+    **Program lifecycle is NOT here:** create/activate/sunset/close a Program is a migration,
+    not a BEP operation. This API configures already-created Programs.
+  contact:
+    name: Loyalty Platform — 
+
+servers:
+  - url: https://api.rdb.example/api/loyalty/admin
+    description: Edge route via AWS API Gateway.
+
+security:
+  - employeeJwt: []
+
+tags:
+  - name: Members
+    description: Member lookup, detail, and ledger audit view.
+  - name: Approvals
+    description: Raise/confirm changes via the bank's BEP Approval Workflow — adjustments and economic config activation.
+  - name: Earning Rules
+    description: Earn Source registry and Earning Rule authoring, dry-run, activation.
+  - name: Rewards
+    description: Reward Type catalogue and per-Program Reward authoring.
+  - name: Campaigns
+    description: Campaign and Drawing CRUD and winner records.
+  - name: Fraud
+    description: Velocity-anomaly fraud alerts (Fraud Ops).
+
+paths:
+  /members:
+    get:
+      tags: [Members]
+      operationId: findMembers
+      summary: Look up members (by customerId).
+      parameters:
+        - name: customerId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Matching members.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MemberSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /members/{memberId}:
+    get:
+      tags: [Members]
+      operationId: getMember
+      summary: Member detail with enrolled programs.
+      parameters: [ { $ref: '#/components/parameters/MemberId' } ]
+      responses:
+        '200':
+          description: Member detail.
+          content: { application/json: { schema: { $ref: '#/components/schemas/MemberDetail' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /members/{memberId}/programs/{programId}/ledger:
+    get:
+      tags: [Members]
+      operationId: getMemberLedger
+      summary: Full Point Ledger for a member in a Program (audit view).
+      parameters:
+        - { $ref: '#/components/parameters/MemberId' }
+        - { $ref: '#/components/parameters/ProgramId' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Ledger page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminLedgerEntry' }
+                  nextCursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /approval-requests:
+    post:
+      tags: [Approvals]
+      operationId: createApprovalRequest
+      summary: Raise a change for BEP approval (manual adjustment or economic config activation).
+      description: |
+        Loyalty persists the proposed change as `PENDING` and returns a `requestId`; the bank's **BEP
+        Approval Workflow** routes it per its Job Roles, 4-eyes, and caps. Loyalty does **not**
+        enforce roles or caps. `type` selects the change kind; `payload` carries the change body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, payload]
+              properties:
+                type:
+                  type: string
+                  enum: [ADJUSTMENT, RULE_ACTIVATION, REWARD_CHANGE, TIER_CHANGE, TCS_VERSION]
+                payload:
+                  type: object
+                  additionalProperties: true
+                  description: 'Change-specific body. ADJUSTMENT: {memberId, programId, qualifyingDelta, redeemableDelta, reason, caseReference}.'
+      responses:
+        '201':
+          description: Approval request created (PENDING).
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApprovalRequest' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: [Approvals]
+      operationId: listApprovalRequests
+      summary: List the approval requests Loyalty has raised (the authoritative inbox is BEP's).
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, APPLIED, REJECTED], default: PENDING }
+        - name: type
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Approval requests.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /approval-requests/{requestId}/confirm:
+    post:
+      tags: [Approvals]
+      operationId: confirmApprovalRequest
+      summary: Apply or reject a request on BEP's approval decision.
+      description: |
+        Called by BEP's Approval Workflow on decision. On `APPROVED`, Loyalty applies the change atomically
+        (writes the `Adjusted` ledger entry / activates the rule / …) and stores `bepApprovalRef`; on `REJECTED`
+        it records the rejection and applies nothing. **Idempotent on `requestId`.** The caller is authenticated
+        by mTLS service identity **and** a verifiable BEP approval assertion (the hardened confirm seam).
+      parameters: [ { $ref: '#/components/parameters/RequestId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, bepApprovalRef]
+              properties:
+                decision: { type: string, enum: [APPROVED, REJECTED] }
+                bepApprovalRef: { type: string }
+                rejectionReason: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Applied or rejected.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApprovalRequest' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Not in PENDING state (already applied/rejected).
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /programs/{programId}/earn-sources:
+    get:
+      tags: [Earning Rules]
+      operationId: listEarnSources
+      summary: Earn Source registry for a Program.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      responses:
+        '200':
+          description: Earn sources.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EarnSource' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /programs/{programId}/rules:
+    get:
+      tags: [Earning Rules]
+      operationId: listRules
+      summary: Earning Rules for a Program.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      responses:
+        '200':
+          description: Rules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EarningRule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Earning Rules]
+      operationId: createRule
+      summary: Author a new Earning Rule (constrained JSON DSL).
+      description: Role `loyalty-campaign-manager`/`loyalty-admin`. `dslJson` is schema-validated at save; created as DRAFT.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [earnSourceId, dslJson]
+              properties:
+                earnSourceId: { type: integer, format: int64 }
+                dslJson: { type: object, additionalProperties: true }
+                effectiveFrom: { type: string, format: date-time, nullable: true }
+                effectiveTo: { type: string, format: date-time, nullable: true }
+                campaignId: { type: integer, format: int64, nullable: true }
+      responses:
+        '201':
+          description: Rule created (DRAFT).
+          content: { application/json: { schema: { $ref: '#/components/schemas/EarningRule' } } }
+        '400':
+          description: DSL failed schema validation.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /programs/{programId}/rules/{ruleId}/dry-run:
+    post:
+      tags: [Earning Rules]
+      operationId: dryRunRule
+      summary: Replay the rule against historical events (no side effects).
+      description: Uses the same interpreter as production; safe because the DSL has no side effects.
+      parameters:
+        - { $ref: '#/components/parameters/ProgramId' }
+        - { $ref: '#/components/parameters/RuleId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventReplayWindow: { type: string, description: 'e.g. P30D (ISO-8601 duration) or an explicit date range.' }
+      responses:
+        '200':
+          description: Simulation result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matchedEvents: { type: integer }
+                  totalQualifying: { type: integer, format: int64 }
+                  totalRedeemable: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /rules/{ruleId}:
+    patch:
+      tags: [Earning Rules]
+      operationId: updateRuleStatus
+      summary: Activate or archive a rule.
+      description: Activation (→ ACTIVE) is an economic change and is **approval-gated** — it raises an `ApprovalRequest` of type `RULE_ACTIVATION` and applies on `confirm`. `ARCHIVED` applies directly.
+      parameters: [ { $ref: '#/components/parameters/RuleId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [ACTIVE, ARCHIVED] }
+      responses:
+        '200':
+          description: Updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/EarningRule' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /reward-types:
+    get:
+      tags: [Rewards]
+      operationId: listRewardTypes
+      summary: Platform Reward Type catalogue (seeded).
+      responses:
+        '200':
+          description: Reward types.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RewardType' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /programs/{programId}/rewards:
+    get:
+      tags: [Rewards]
+      operationId: listRewardsAdmin
+      summary: Reward catalogue for a Program (all statuses).
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      responses:
+        '200':
+          description: Rewards.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AdminReward' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Rewards]
+      operationId: createReward
+      summary: Author a new Reward (DRAFT).
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rewardTypeCode, name, pointCost]
+              properties:
+                rewardTypeCode: { type: string }
+                name: { type: string }
+                pointCost: { type: integer, format: int64 }
+                fulfillmentParams: { type: object, additionalProperties: true }
+                eligibility: { type: object, additionalProperties: true }
+                inventoryTotal: { type: integer, format: int64, nullable: true }
+      responses:
+        '201':
+          description: Reward created.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminReward' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /rewards/{rewardId}:
+    patch:
+      tags: [Rewards]
+      operationId: updateRewardStatus
+      summary: Activate or archive a Reward.
+      description: Activation (→ ACTIVE) and `point_cost` changes are economic and **approval-gated** — they raise an `ApprovalRequest` of type `REWARD_CHANGE` and apply on `confirm`. `ARCHIVED` applies directly.
+      parameters: [ { $ref: '#/components/parameters/RewardId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [ACTIVE, ARCHIVED] }
+      responses:
+        '200':
+          description: Updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminReward' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /programs/{programId}/campaigns:
+    get:
+      tags: [Campaigns]
+      operationId: listCampaignsAdmin
+      summary: Campaigns for a Program.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      responses:
+        '200':
+          description: Campaigns.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campaign' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Campaigns]
+      operationId: createCampaign
+      summary: Create a campaign (DRAFT).
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, startsAt, endsAt]
+              properties:
+                name: { type: string }
+                startsAt: { type: string, format: date-time }
+                endsAt: { type: string, format: date-time }
+                targetSegment: { type: object, additionalProperties: true }
+      responses:
+        '201':
+          description: Campaign created.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Campaign' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /campaigns/{campaignId}:
+    patch:
+      tags: [Campaigns]
+      operationId: updateCampaignStatus
+      summary: Transition a campaign (schedule / activate / end / archive).
+      parameters: [ { $ref: '#/components/parameters/CampaignId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [SCHEDULED, LIVE, ENDED, ARCHIVED] }
+      responses:
+        '200':
+          description: Updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Campaign' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /campaigns/{campaignId}/drawings:
+    post:
+      tags: [Campaigns]
+      operationId: createDrawing
+      summary: Add a drawing (sweepstakes) to a campaign.
+      parameters: [ { $ref: '#/components/parameters/CampaignId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduledAt, entryWindowStart, entryWindowEnd]
+              properties:
+                scheduledAt: { type: string, format: date-time }
+                selectionStrategy: { type: string, default: SEEDED_RNG }
+                prize: { type: object, additionalProperties: true }
+                entryWindowStart: { type: string, format: date-time }
+                entryWindowEnd: { type: string, format: date-time }
+                allowMultipleEntries: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Drawing created.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Drawing' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /drawings/{drawingId}/winners:
+    get:
+      tags: [Campaigns]
+      operationId: listDrawingWinners
+      summary: Winner records for a completed drawing (audit-replayable).
+      parameters: [ { $ref: '#/components/parameters/DrawingId' } ]
+      responses:
+        '200':
+          description: Winners.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WinnerRecord' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /fraud/alerts:
+    get:
+      tags: [Fraud]
+      operationId: listFraudAlerts
+      summary: Velocity-anomaly fraud alerts (consumed from loyalty.fraud.alert.v1).
+      description: Role `loyalty-fraud-ops`.
+      parameters:
+        - { $ref: '#/components/parameters/ProgramIdQuery' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Fraud alerts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/FraudAlert' }
+                  nextCursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    employeeJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Employee JWT from RDB Authentication Service (Keycloak), business-employee-portal realm. Roles gate operations (Arch §7.1).
+
+  parameters:
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ProgramIdQuery:
+      name: programId
+      in: query
+      required: false
+      schema: { type: integer, format: int64 }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RewardId:
+      name: rewardId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CampaignId:
+      name: campaignId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    DrawingId:
+      name: drawingId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, default: 20, maximum: 100 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Forbidden:
+      description: Authenticated but lacks the required role / Program scope.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    NotFound:
+      description: Resource not found.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  schemas:
+    ProgramRef:
+      type: object
+      required: [programId, programCode]
+      properties:
+        programId: { type: integer, format: int64 }
+        programCode: { type: string, maxLength: 32, example: RDB_REWARDS }
+
+    MemberSummary:
+      type: object
+      properties:
+        memberId: { type: integer, format: int64 }
+        customerId: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+
+    MemberDetail:
+      allOf:
+        - $ref: '#/components/schemas/MemberSummary'
+        - type: object
+          properties:
+            programs:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/ProgramRef'
+                  - type: object
+                    properties:
+                      status: { type: string, enum: [ACTIVE, SUSPENDED_TCS, OPTED_OUT, CLOSED] }
+                      redeemableBalance: { type: integer, format: int64 }
+                      qualifyingBalance: { type: integer, format: int64 }
+                      tcsVersionAccepted: { type: integer, nullable: true }
+
+    AdminLedgerEntry:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            entryId: { type: integer, format: int64 }
+            entryType: { type: string, enum: [Earned, Redeemed, Expired, Reversed, Adjusted, Converted-Out, Converted-In] }
+            qualifyingDelta: { type: integer, format: int64 }
+            redeemableDelta: { type: integer, format: int64 }
+            sourceRef: { type: string }
+            makerUserId: { type: string, nullable: true }
+            checkerUserId: { type: string, nullable: true }
+            reason: { type: string, nullable: true }
+            createdAt: { type: string, format: date-time }
+
+    ApprovalRequest:
+      type: object
+      description: A proposed change Loyalty raised for BEP approval. No maker/checker — BEP owns that.
+      properties:
+        requestId: { type: integer, format: int64 }
+        type: { type: string, enum: [ADJUSTMENT, RULE_ACTIVATION, REWARD_CHANGE, TIER_CHANGE, TCS_VERSION] }
+        payload: { type: object, additionalProperties: true, description: The proposed change. }
+        status: { type: string, enum: [PENDING, APPLIED, REJECTED] }
+        requestedBy: { type: string, nullable: true }
+        bepApprovalRef: { type: string, nullable: true, description: BEP approval-workflow reference; system-of-record for who approved. }
+        appliedRef: { type: integer, format: int64, nullable: true, description: 'Resulting artifact id (e.g. ledger entryId) once APPLIED.' }
+        createdAt: { type: string, format: date-time }
+        appliedAt: { type: string, format: date-time, nullable: true }
+
+    EarnSource:
+      type: object
+      properties:
+        earnSourceId: { type: integer, format: int64 }
+        earnSourceCode: { type: string, example: CARD_SPEND }
+        displayName: { type: string }
+        activeByDefault: { type: boolean }
+
+    EarningRule:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            ruleId: { type: integer, format: int64 }
+            earnSourceId: { type: integer, format: int64 }
+            dslJson: { type: object, additionalProperties: true }
+            version: { type: integer }
+            status: { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+            effectiveFrom: { type: string, format: date-time, nullable: true }
+            effectiveTo: { type: string, format: date-time, nullable: true }
+            campaignId: { type: integer, format: int64, nullable: true }
+
+    RewardType:
+      type: object
+      properties:
+        rewardTypeCode: { type: string, example: CASHBACK }
+        displayName: { type: string }
+        fulfillmentAdapterClass: { type: string }
+        parameterSchema: { type: object, additionalProperties: true }
+
+    AdminReward:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            rewardId: { type: integer, format: int64 }
+            rewardTypeCode: { type: string }
+            rewardRevision: { type: integer }
+            name: { type: string }
+            pointCost: { type: integer, format: int64 }
+            status: { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+            inventoryTotal: { type: integer, format: int64, nullable: true }
+            inventoryRemaining: { type: integer, format: int64, nullable: true }
+
+    Campaign:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            campaignId: { type: integer, format: int64 }
+            name: { type: string }
+            startsAt: { type: string, format: date-time }
+            endsAt: { type: string, format: date-time }
+            status: { type: string, enum: [DRAFT, SCHEDULED, LIVE, ENDED, ARCHIVED] }
+
+    Drawing:
+      type: object
+      properties:
+        drawingId: { type: integer, format: int64 }
+        campaignId: { type: integer, format: int64 }
+        scheduledAt: { type: string, format: date-time }
+        selectionStrategy: { type: string }
+        status: { type: string, enum: [OPEN, CLOSED, COMPLETED, VOID] }
+
+    WinnerRecord:
+      type: object
+      properties:
+        winnerId: { type: integer, format: int64 }
+        drawingId: { type: integer, format: int64 }
+        memberId: { type: integer, format: int64 }
+        seedHex: { type: string }
+        winnerIndex: { type: integer, format: int64 }
+        drawnAt: { type: string, format: date-time }
+
+    FraudAlert:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            memberId: { type: integer, format: int64 }
+            anomalyType: { type: string, example: EARN_VELOCITY_SPIKE }
+            observedRate: { type: number }
+            threshold: { type: number }
+            detectedAt: { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: RFC 7807 problem detail.
+      properties:
+        type: { type: string, format: uri, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string, description: 'Loyalty error code, e.g. CAP_EXCEEDED, CHECKER_EQUALS_MAKER, DSL_INVALID.' }

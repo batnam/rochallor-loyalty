@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:loyalty:ingress:customer_lifecycle:v1",
+  "title": "Customer Lifecycle (ingress)",
+  "description": "Loyalty Integration Contract — Layer 1, customer-scoped (ADR-0025). Tolerant reader (ADR-0014).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["eventId", "customerId", "occurredAt", "lifecycleType", "schemaVersion"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1 },
+    "customerId": { "type": "integer" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "lifecycleType": {
+      "type": "string",
+      "enum": ["CUSTOMER_CLOSED"],
+      "description": "Canonical lifecycle type. v1: customer closed."
+    },
+    "reason": { "type": ["string", "null"] },
+    "schemaVersion": { "type": "integer", "const": 1 }
+  }
+}

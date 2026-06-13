@@ -1,0 +1,15 @@
+{
+  "dslVersion": 1,
+  "earnSource": "CARD_SPEND",
+  "inputs": ["amount"],
+  "hitPolicy": "FIRST",
+  "tierMultiplier": false,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "amount": { "gte": 10 } },
+      "earn": { "type": "FIXED", "points": 1000, "balances": ["redeemable"] }
+    }
+  ],
+  "caps": { "perMemberPerRule": 1 }
+}

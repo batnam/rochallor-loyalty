@@ -1,0 +1,15 @@
+{
+  "dslVersion": 1,
+  "earnSource": "CARD_SPEND",
+  "inputs": ["mcc", "currency"],
+  "hitPolicy": "COLLECT",
+  "tierMultiplier": false,
+  "rounding": "FLOOR",
+  "rows": [
+    {
+      "when": { "currency": "USD", "mcc": { "in": ["5812", "5813", "5814"] } },
+      "earn": { "type": "RATE", "perAmount": 1, "points": 3, "balances": ["redeemable"] }
+    }
+  ],
+  "caps": { "perEventMax": 1000, "perMemberPerDay": 2000 }
+}

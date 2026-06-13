@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: loyalty-campaign
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/loyalty_campaign}
+    username: ${DB_USER:loyalty}
+    password: ${DB_PASSWORD:loyalty}
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Flyway owns the schema; Hibernate only validates the mapping
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+
+# Canonical channel names + selection config. A deployment may override via env/config.
+campaign:
+  topics:
+    drawing-completed: loyalty.campaign.drawing_completed.v1  # produced (winners selected)
+    winner-selected: loyalty.campaign.winner_selected.v1      # produced (one per winner)
+    drawing-void: loyalty.campaign.drawing_void.v1            # produced (zero-entry drawing; C4 §3.3)
+  # v1 single Program, 1:1 customer<->member. programId carried on every request; the create request does
+  # not supply programCode (it is not in the OpenAPI schema), so responses use this configured default.
+  default-program-id: 1
+  default-program-code: RETAIL
+  selection:
+    # HMAC secret for SEEDED_RNG/WEIGHTED seed derivation (L3 §3.3). The only non-public selection input;
+    # rotated annually by platform SRE. winner_record retains the seed hex so any draw stays re-verifiable.
+    hmac-secret: ${SELECTION_HMAC_SECRET:dev-only-rotate-me}
+  # Drawing Scheduler poll cadence — fires Winner Selection for OPEN drawings past their draw_at.
+  scheduler:
+    poll-cron: "0 * * * * *"   # every minute
+  outbox:
+    relay-batch-size: 100
+
+logging:
+  level:
+    io.github.batnam.loyalty.campaign: DEBUG

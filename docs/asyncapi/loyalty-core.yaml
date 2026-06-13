@@ -1,0 +1,228 @@
+asyncapi: '2.6.0'
+info:
+  title: loyalty-core — Domain Events
+  version: '0.1.0'
+  description: |
+    Events **published** by `loyalty-core` (Membership + Ledger contexts). A `subscribe`
+    operation describes a message this application emits (AsyncAPI 2.x client-centric
+    convention). `loyalty-core` also *consumes* `loyalty.member.lifecycle.v1` and
+    `loyalty.payment.reversed.v1` (core-driven clawback); consumption is mapped in
+    [`docs/event-catalogue.md`](../event-catalogue.md).
+
+    Transport: shared MSK (Kafka). **JSON Schema, no schema registry**; backward-compat enforced
+    in CI. Topic naming: `loyalty.<context>.<event_type>.v<n>`.
+  contact:
+    name: Loyalty Platform — 
+defaultContentType: application/json
+
+servers:
+  msk:
+    url: b-1.loyalty-msk.<region>.amazonaws.com:9094
+    protocol: kafka-secure
+    description: Shared RDB MSK cluster; Loyalty restricted to loyalty.* producer ACLs.
+    security:
+      - mtls: []
+
+channels:
+  loyalty.member.opted_in.v1:
+    description: A Customer opted into a Program (explicit opt-in or first T&Cs acceptance on an auto-enrolled Program).
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitMemberOptedIn
+      summary: loyalty-core publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/MemberOptedIn'
+
+  loyalty.member.tier_changed.v1:
+    description: A Member's tier moved up or down — a qualifying-threshold cross, expiry/clawback lowering qualifying, or a lapsed grace window. Supersedes loyalty.member.tier_upgraded.v1; fires only when current_tier_id actually changes.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitTierChanged
+      summary: loyalty-core publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/TierChanged'
+
+  loyalty.member.tier_at_risk.v1:
+    description: A Member's qualifying balance fell below their current Tier threshold and they entered a grace window. The tier itself is unchanged; carries the re-qualify deadline + shortfall for a "spend X by DATE to keep your tier" nudge.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitTierAtRisk
+      summary: loyalty-core publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/TierAtRisk'
+
+  loyalty.ledger.points_expiring_soon.v1:
+    description: Scheduled 30-/60-day expiry warning for an unconsumed cohort.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitPointsExpiringSoon
+      summary: loyalty-core publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/PointsExpiringSoon'
+
+  loyalty.ledger.manual_adjustment_applied.v1:
+    description: A BEP-approved adjustment was committed to the Ledger (Arch §4.6.6; approval delegated to BEP).
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitManualAdjustmentApplied
+      summary: loyalty-core publishes; notification-service subscribes (configurable).
+      message:
+        $ref: '#/components/messages/ManualAdjustmentApplied'
+
+  loyalty.ledger.points_clawed_back.v1:
+    description: |
+      Emitted after loyalty-core writes the compensating `Reversed` entries for a refund
+      (core-driven clawback) — core consumes `loyalty.payment.reversed.v1` from the
+      Bridge and reverses every ledger entry matching the original event's `source_ref`.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitPointsClawedBack
+      summary: loyalty-core publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/PointsClawedBack'
+
+components:
+  securitySchemes:
+    mtls:
+      type: X509
+      description: Service-to-service mutual TLS.
+
+  parameters:
+    memberId:
+      description: Partition key — partitioned by memberId.
+      schema: { type: integer, format: int64 }
+
+  messages:
+    MemberOptedIn:
+      name: MemberOptedIn
+      messageId: MemberOptedIn
+      title: Member Opted In
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, customerId, optedInAt]
+            properties:
+              memberId: { type: integer, format: int64 }
+              customerId: { type: integer, format: int64, description: 'Reference to RDB Customer (PII boundary).' }
+              tcsVersionAccepted: { type: integer, nullable: true, description: 'NULL when auto-enrolled and T&Cs not yet accepted.' }
+              optedInAt: { type: string, format: date-time }
+
+    TierChanged:
+      name: TierChanged
+      messageId: TierChanged
+      title: Tier Changed
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, direction, toTierId, reason, occurredAt]
+            properties:
+              memberId: { type: integer, format: int64 }
+              direction: { type: string, enum: [UP, DOWN], description: 'Direction of the move; fires only when current_tier_id actually changes.' }
+              fromTierId: { type: integer, format: int64, nullable: true, description: 'NULL on first upgrade from no prior tier.' }
+              toTierId: { type: integer, format: int64 }
+              reason: { type: string, enum: [THRESHOLD_UP, THRESHOLD_DROP, EXPIRY, CLAWBACK, GRACE_LAPSED, ADJUSTMENT], description: 'THRESHOLD_UP=qualifying crossed up; THRESHOLD_DROP=metric re-eval below threshold, no grace; EXPIRY=expiry lowered qualifying; CLAWBACK=reversal; GRACE_LAPSED=grace window ended without re-qualifying; ADJUSTMENT=BEP manual.' }
+              qualifyingBalance: { type: integer, format: int64 }
+              occurredAt: { type: string, format: date-time }
+
+    TierAtRisk:
+      name: TierAtRisk
+      messageId: TierAtRisk
+      title: Tier At Risk
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, currentTierId, graceEndsAt, shortfall, graceBenefits, occurredAt]
+            properties:
+              memberId: { type: integer, format: int64 }
+              currentTierId: { type: integer, format: int64, description: 'Tier the Member still holds during grace — unchanged until/unless grace lapses.' }
+              graceEndsAt: { type: string, format: date-time, description: 'Detection-relative deadline (detection + grace_window_days).' }
+              shortfall: { type: integer, format: int64, description: 'Qualifying points needed to re-qualify and avoid the downgrade.' }
+              graceBenefits: { type: string, enum: [RETAIN, FREEZE], description: 'RETAIN=benefits stay live through grace; FREEZE=badge held, cost-bearing benefits stepped down now.' }
+              occurredAt: { type: string, format: date-time }
+
+    PointsExpiringSoon:
+      name: PointsExpiringSoon
+      messageId: PointsExpiringSoon
+      title: Points Expiring Soon
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, expiringAmount, expiresAt, warningWindowDays]
+            properties:
+              memberId: { type: integer, format: int64 }
+              expiringAmount: { type: integer, format: int64 }
+              expiresAt: { type: string, format: date-time }
+              warningWindowDays: { type: integer, enum: [30, 60] }
+
+    ManualAdjustmentApplied:
+      name: ManualAdjustmentApplied
+      messageId: ManualAdjustmentApplied
+      title: Manual Adjustment Applied
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, approvalRequestId, qualifyingDelta, redeemableDelta, bepApprovalRef, appliedAt]
+            properties:
+              memberId: { type: integer, format: int64 }
+              approvalRequestId: { type: integer, format: int64 }
+              qualifyingDelta: { type: integer, format: int64 }
+              redeemableDelta: { type: integer, format: int64 }
+              bepApprovalRef: { type: string, description: 'BEP approval reference; BEP is system-of-record for who approved.' }
+              reason: { type: string }
+              appliedAt: { type: string, format: date-time }
+
+    PointsClawedBack:
+      name: PointsClawedBack
+      messageId: PointsClawedBack
+      title: Points Clawed Back
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [memberId, reversalEventId, originalEventId, reversedQualifying, reversedRedeemable, entryIds]
+            properties:
+              memberId: { type: integer, format: int64 }
+              reversalEventId: { type: string, description: PaymentReversed.reversalEventId. }
+              originalEventId: { type: string, description: The original earn eventId whose points are reversed. }
+              reversedQualifying: { type: integer, format: int64, description: Negative or zero. }
+              reversedRedeemable: { type: integer, format: int64, description: 'Negative or zero; balance may go below zero.' }
+              entryIds:
+                type: array
+                items: { type: integer, format: int64 }
+                description: Compensating Reversed entry ids written by loyalty-core.
+
+  schemas:
+    EventHeaders:
+      type: object
+      required: [traceparent, source]
+      properties:
+        traceparent: { type: string, description: W3C trace context. }
+        source: { type: string, example: loyalty-core }
+
+    Envelope:
+      type: object
+      description: Common fields on every loyalty.* domain event (Arch §4.2.4).
+      required: [eventId, eventType, occurredAt, programId, schemaVersion]
+      properties:
+        eventId: { type: string, description: 'Unique id; consumer idempotency key.' }
+        eventType: { type: string }
+        occurredAt: { type: string, format: date-time }
+        programId: { type: integer, format: int64, description: 'Always present from v1.' }
+        schemaVersion: { type: integer, example: 1 }

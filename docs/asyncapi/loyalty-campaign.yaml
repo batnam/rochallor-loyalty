@@ -1,0 +1,152 @@
+asyncapi: '2.6.0'
+info:
+  title: loyalty-campaign — Domain Events
+  version: '0.1.0'
+  description: |
+    Events **published** by `loyalty-campaign`. A `subscribe` operation describes a
+    message this application emits (AsyncAPI 2.x client-centric convention). Consumption
+    is mapped in [`docs/event-catalogue.md`](../event-catalogue.md).
+
+    Transport: shared MSK (Kafka). Topic naming: `loyalty.<context>.<event_type>.v<n>`.
+  contact:
+    name: Loyalty Platform — 
+defaultContentType: application/json
+
+servers:
+  msk:
+    url: b-1.loyalty-msk.<region>.amazonaws.com:9094
+    protocol: kafka-secure
+    description: Shared RDB MSK cluster; loyalty.* producer ACLs.
+    security:
+      - mtls: []
+
+channels:
+  loyalty.campaign.drawing_completed.v1:
+    description: A scheduled Drawing ran and winners were selected (Arch §4.6.5). Fan-out notification trigger.
+    parameters:
+      drawingId: { $ref: '#/components/parameters/drawingId' }
+    subscribe:
+      operationId: emitDrawingCompleted
+      summary: loyalty-campaign publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/DrawingCompleted'
+
+  loyalty.campaign.winner_selected.v1:
+    description: |
+      One event per selected winner, carrying the auditable seeded-RNG selection proof.
+      Prize fulfillment itself is a direct API call to loyalty-redemption (Arch §4.6.5),
+      not driven by this event.
+    parameters:
+      memberId: { $ref: '#/components/parameters/memberId' }
+    subscribe:
+      operationId: emitWinnerSelected
+      summary: loyalty-campaign publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/WinnerSelected'
+
+  loyalty.campaign.drawing_void.v1:
+    description: |
+      A scheduled Drawing reached its draw time with zero entries and closed as VOID (Arch §4.6.5 /
+      C4 §3.3) — emitted as a distinct event rather than a DrawingCompleted with an empty winner set,
+      so BEP can review and re-run.
+    parameters:
+      drawingId: { $ref: '#/components/parameters/drawingId' }
+    subscribe:
+      operationId: emitDrawingVoid
+      summary: loyalty-campaign publishes; notification-service subscribes.
+      message:
+        $ref: '#/components/messages/DrawingVoid'
+
+components:
+  securitySchemes:
+    mtls:
+      type: X509
+      description: Service-to-service mutual TLS.
+
+  parameters:
+    memberId:
+      description: Partition key for winner_selected — partitioned by memberId.
+      schema: { type: integer, format: int64 }
+    drawingId:
+      description: Partition key for drawing_completed / drawing_void — partitioned by drawingId.
+      schema: { type: integer, format: int64 }
+
+  messages:
+    DrawingCompleted:
+      name: DrawingCompleted
+      messageId: DrawingCompleted
+      title: Drawing Completed
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [drawingId, campaignId, winnerMemberIds, selectionStrategy, drawnAt]
+            properties:
+              drawingId: { type: integer, format: int64 }
+              campaignId: { type: integer, format: int64 }
+              selectionStrategy: { type: string, enum: [SEEDED_RNG, WEIGHTED, FIRST_N], description: 'Strategy used for this draw.' }
+              winnerMemberIds:
+                type: array
+                items: { type: integer, format: int64 }
+              prizes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    memberId: { type: integer, format: int64 }
+                    prizeRewardId: { type: integer, format: int64 }
+              drawnAt: { type: string, format: date-time }
+
+    WinnerSelected:
+      name: WinnerSelected
+      messageId: WinnerSelected
+      title: Winner Selected
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [drawingId, campaignId, memberId, winnerIndex, selectionStrategy, drawnAt]
+            properties:
+              drawingId: { type: integer, format: int64 }
+              campaignId: { type: integer, format: int64 }
+              memberId: { type: integer, format: int64 }
+              prizeRewardId: { type: integer, format: int64, nullable: true }
+              selectionStrategy: { type: string, enum: [SEEDED_RNG, WEIGHTED, FIRST_N], description: 'Strategy used.' }
+              winnerIndex: { type: integer, format: int64, description: "Winner's index into the entry set ordered by entry_id (arrival rank for FIRST_N)." }
+              seedHex: { type: string, nullable: true, description: 'Seed used (SEEDED_RNG/WEIGHTED); NULL for FIRST_N. With the HMAC secret + frozen entries/weights the draw is re-verifiable.' }
+              drawnAt: { type: string, format: date-time }
+
+    DrawingVoid:
+      name: DrawingVoid
+      messageId: DrawingVoid
+      title: Drawing Void
+      headers: { $ref: '#/components/schemas/EventHeaders' }
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            required: [drawingId, campaignId, voidedAt]
+            properties:
+              drawingId: { type: integer, format: int64 }
+              campaignId: { type: integer, format: int64 }
+              voidedAt: { type: string, format: date-time, description: 'Draw time at which the Drawing closed VOID with zero entries.' }
+
+  schemas:
+    EventHeaders:
+      type: object
+      required: [traceparent, source]
+      properties:
+        traceparent: { type: string }
+        source: { type: string, example: loyalty-campaign }
+
+    Envelope:
+      type: object
+      required: [eventId, eventType, occurredAt, programId, schemaVersion]
+      properties:
+        eventId: { type: string }
+        eventType: { type: string }
+        occurredAt: { type: string, format: date-time }
+        programId: { type: integer, format: int64 }
+        schemaVersion: { type: integer, example: 1 }

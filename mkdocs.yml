@@ -1,0 +1,133 @@
+site_name: Rochallor Loyalty Platform
+site_description: A production-grade, config-driven loyalty engine for retail digital banks
+site_url: https://batnam.github.io/rochallor-loyalty
+repo_url: https://github.com/batnam/rochallor-loyalty
+repo_name: batnam/rochallor-loyalty
+edit_uri: edit/main/
+
+docs_dir: docs
+
+# Mirror the source layout in the built site so relative paths inside raw HTML
+# <img> tags (which MkDocs does not rewrite) resolve correctly on GitHub Pages.
+use_directory_urls: false
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+plugins:
+  - search:
+      lang: en
+  - include-markdown
+  - minify:
+      minify_html: true
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - tables
+  - attr_list
+  - md_in_html
+  - footnotes
+  - toc:
+      permalink: true
+      title: On this page
+
+nav:
+  - Home: index.md
+  - Architecture:
+    - Domain Context: domain-context.md
+    - Enterprise Architecture: enterprise-architect.md
+    - C4 Model:
+      - System Context (L1): c4/level-1-system-context.md
+      - Container View (L2): c4/level-2-containers.md
+      - Component Views (L3):
+        - Loyalty Core: c4/level-3-loyalty-core.md
+        - Loyalty Earning: c4/level-3-loyalty-earning.md
+        - Loyalty Redemption: c4/level-3-loyalty-redemption.md
+        - Loyalty Campaign: c4/level-3-loyalty-campaign.md
+        - Integration Bridge: c4/level-3-loyalty-integration-bridge.md
+        - Mobile BFF: c4/level-3-loyalty-mobile-bff.md
+        - Admin BFF: c4/level-3-loyalty-admin-bff.md
+  - Services:
+    - Loyalty Core: services/loyalty-core.md
+    - Loyalty Earning: services/loyalty-earning.md
+    - Loyalty Redemption: services/loyalty-redemption.md
+    - Loyalty Campaign: services/loyalty-campaign.md
+    - Integration Bridge: services/loyalty-integration-bridge.md
+    - Mobile BFF: services/loyalty-mobile-bff.md
+    - Admin BFF: services/loyalty-admin-bff.md
+  - API Reference:
+    - API Catalogue: supporting-artifacts/api-catalogue.md
+    - Event Catalogue: supporting-artifacts/event-catalogue.md
+    - Ingress Contract: asyncapi/INGRESS-CONTRACT.md
+    - Earning Rule DSL: supporting-artifacts/sample-dsl-library.md
+  - Operations:
+    - User Guide: USER-GUIDE.md
+    - Data Catalogue: supporting-artifacts/data-catalogue.md
+    - Test Strategy: supporting-artifacts/test-strategy.md
+    - Threat Model: supporting-artifacts/threat-model.md
+    - BEP Wireframes: supporting-artifacts/bep-wireframes.md
+    - Customer Journey Maps: supporting-artifacts/customer-journey-maps.md
+    - Open Items — Earning: supporting-artifacts/open-items-v1-earning.md
+
+extra:
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/batnam/rochallor-loyalty
+      name: Rochallor Loyalty Platform on GitHub
+
+copyright: Copyright &copy; 2025 — Apache License 2.0

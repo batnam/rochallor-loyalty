@@ -1,0 +1,32 @@
+# E2E overlay for the base src/docker-compose.yml. Adds a single WireMock container that
+# stands in for the two external systems loyalty-redemption calls (Host Bank Payment Hub and
+# the 3rd-party voucher partner), and points redemption's base-url env vars at it. The base
+# stack stays untouched — `docker compose up` for plain local dev is unaffected.
+#
+# Run (the pytest harness does this for you):
+#   E2E_WIREMOCK_MAPPINGS=<abs path to e2e/wiremock/mappings> \
+#   docker compose --project-directory <repo>/src \
+#     -f <repo>/src/docker-compose.yml -f <repo>/e2e/docker-compose.e2e.yml up -d --build
+#
+# E2E_WIREMOCK_MAPPINGS is an ABSOLUTE path injected by the test so the bind mount is immune to
+# Compose's first-file-wins relative-path resolution when layering files from two directories.
+
+name: rochallor-loyalty-platform
+
+services:
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    command: ["--port", "8080", "--verbose"]
+    volumes:
+      - ${E2E_WIREMOCK_MAPPINGS}:/home/wiremock/mappings:ro
+    ports:
+      - "9300:8080"
+
+  loyalty-redemption:
+    # Merges onto the base service's environment (Compose unions mapping-type fields).
+    environment:
+      PAYMENT_HUB_BASE_URL: http://wiremock:8080
+      VOUCHER_PARTNER_BASE_URL: http://wiremock:8080
+    depends_on:
+      wiremock:
+        condition: service_started

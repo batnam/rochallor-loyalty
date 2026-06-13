@@ -1,0 +1,9 @@
+# Keep the build context small + reproducible: the image builds from source via the
+# Gradle wrapper, so local build output and IDE/VCS noise must not be sent to the builder.
+build/
+.gradle/
+.idea/
+*.iml
+images/
+*.md
+.DS_Store
