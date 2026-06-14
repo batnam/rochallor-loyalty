@@ -245,7 +245,7 @@ components:
         sourceRef:       { type: string, description: 'Bridge-translated `eventId + ruleId`. Uniqueness key — `(sourceRef, entryType=Earned)` is enforced at the table level.' }
         qualifyingDelta: { type: integer, format: int64, description: Points toward Tier qualification. }
         redeemableDelta: { type: integer, format: int64, description: Points spendable in redemption. }
-        currency:        { type: string, example: USD, nullable: true, description: 'Debited-perspective currency from the original event; USD or VND for Cambodia.' }
+        currency:        { type: string, example: USD, nullable: true, description: 'Debited-perspective currency from the original event; USD or VND.' }
         occurredAt:      { type: string, format: date-time }
 
     LedgerEntry:

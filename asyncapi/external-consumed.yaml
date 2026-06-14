@@ -149,7 +149,7 @@ components:
           eventId: { type: string, description: 'Stable producer id; Loyalty uses it as idempotency key.' }
           customerId: { type: integer, format: int64 }
           amount: { type: number, description: 'Debited amount in `currency` from the customer''s perspective. No Bridge-side FX normalisation.' }
-          currency: { type: string, example: USD, description: 'Debited account currency (USD or VND in Cambodia dual-currency market).' }
+          currency: { type: string, example: USD, description: 'Debited account currency (USD or VND).' }
           paymentType:
             type: string
             description: |

@@ -263,7 +263,7 @@ components:
           example: 42.50
         currency:
           type: string
-          description: Debited account currency. USD and VND are both first-class (Cambodia dual-currency market).
+          description: Debited account currency. USD and VND are both first-class.
           enum: [USD, VND]
           example: "USD"
         mcc:
