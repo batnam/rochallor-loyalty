@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://loyalty.rdb.example/dsl/earning-rule.schema.json",
   "title": "Loyalty Earning Rule DSL",
-  "description": "Canonical decision-table form of an Earning Rule's dsl_json (ADR-0002). Constrained and non-Turing-complete: a flat field->condition predicate per row (implicit AND), a fixed vocabulary of comparison operators, two earn formula types, and a closed set of caps. Validated at save by loyalty-earning's Rule Engine.",
+  "description": "Canonical decision-table form of an Earning Rule's dsl_json. Constrained and non-Turing-complete: a flat field->condition predicate per row (implicit AND), a fixed vocabulary of comparison operators, two earn formula types, and a closed set of caps. Validated at save by loyalty-earning's Rule Engine.",
   "type": "object",
   "additionalProperties": false,
   "required": ["dslVersion", "earnSource", "rows"],
@@ -136,7 +136,7 @@
         "perMemberPerDay": {
           "type": "integer",
           "minimum": 0,
-          "description": "Max points this RULE may award one member per calendar day. Per-rule only; the Program-level Source-Aggregate cap (across a source's rules) is enforced outside the DSL (ADR-0013)."
+          "description": "Max points this RULE may award one member per calendar day. Per-rule only; the Program-level Source-Aggregate cap (across a source's rules) is enforced outside the DSL."
         },
         "perMemberPerMonth": {
           "type": "integer",
