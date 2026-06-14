@@ -1,0 +1,55 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "e2e/**"
+      - ".github/workflows/e2e.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "e2e/**"
+      - ".github/workflows/e2e.yml"
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install E2E dependencies
+        run: python3 -m pip install -r e2e/requirements.txt
+
+      - name: Run E2E tests
+        working-directory: e2e
+        run: python3 -m pytest -v --tb=short
+
+      - name: Collect service logs on failure
+        if: failure()
+        env:
+          E2E_WIREMOCK_MAPPINGS: ${{ github.workspace }}/e2e/wiremock/mappings
+        run: |
+          docker compose \
+            --project-directory src \
+            -f src/docker-compose.yml \
+            -f e2e/docker-compose.e2e.yml \
+            logs --no-color 2>&1 | tee stack-logs.txt || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-logs
+          path: stack-logs.txt
+          retention-days: 7

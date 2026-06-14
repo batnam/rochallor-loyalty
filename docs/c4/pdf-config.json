@@ -1,0 +1,9 @@
+{
+  "pdf_options": {
+    "format": "A3",
+    "margin": "15mm",
+    "printBackground": true
+  },
+  "stylesheet_encoding": "utf-8",
+  "css": "img { max-width: 100%; height: auto; } pre { white-space: pre-wrap; word-wrap: break-word; font-size: 10px; } table { font-size: 10px; } body { font-family: -apple-system, sans-serif; }"
+}

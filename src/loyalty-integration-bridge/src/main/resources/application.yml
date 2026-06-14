@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: loyalty-integration-bridge
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: loyalty-integration-bridge
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true   # at-most-once duplicate at broker; downstream dedups by eventId
+    listener:
+      ack-mode: record             # commit offset after each record returns (no manual ack)
+
+# Canonical channel names. A deployment may override via env/config.
+bridge:
+  topics:
+    ingress-card-spend: loyalty.ingress.card_spend.v1
+    ingress-payment: loyalty.ingress.payment.v1
+    ingress-reversal: loyalty.ingress.reversal.v1
+    ingress-customer-lifecycle: loyalty.ingress.customer_lifecycle.v1
+    earn-translated: loyalty.earn.translated.v1
+    payment-reversed: loyalty.payment.reversed.v1
+    member-lifecycle: loyalty.member.lifecycle.v1
+    fraud-alert: loyalty.fraud.alert.v1
+    fulfillment-resume: loyalty.fulfillment.resume.v1
+    card-spend-dlq: loyalty.ingress.card_spend.v1.dlq
+    payment-dlq: loyalty.ingress.payment.v1.dlq
+    reversal-dlq: loyalty.ingress.reversal.v1.dlq
+    lifecycle-dlq: loyalty.ingress.customer_lifecycle.v1.dlq
+  # Loyalty-owned, bank-uniform paymentType → earn_source routing.
+  payment:
+    fallback-earn-source: PAYMENT_COMPLETED   # inactive; EMIT_FALLBACK_AND_ALERT for unmapped values
+    payment-type-to-earn-source:
+      BILL_PAYMENT: BILL_PAYMENT
+      FUND_TRANSFER: FUND_TRANSFER
+      P2P_TRANSFER: FUND_TRANSFER     # routed to FUND_TRANSFER; DSL excludes via preserved paymentType
+      QR_PAYMENT: FUND_TRANSFER
+      TOPUP: TOPUP
+  # Velocity Anomaly detector (degraded-availability fraud feature). Tune per deployment.
+  velocity:
+    enabled: true
+    window-days: 30
+    max-earns-per-window: 500   # > this many earns per customer in the window → EARN_VELOCITY_SPIKE
+  # Voucher webhook HMAC auth (DD-2). Secret injected from the deployment secret store — never commit it.
+  voucher:
+    hmac-secret: ${VOUCHER_WEBHOOK_HMAC_SECRET:change-me-in-deployment}
+    timestamp-tolerance-seconds: 300
+
+logging:
+  level:
+    io.github.batnam.loyalty.bridge: DEBUG

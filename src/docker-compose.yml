@@ -1,0 +1,173 @@
+# Local development stack for the Rochallor Loyalty Platform.
+#
+#   cd src && docker compose up --build
+#
+# Brings up shared infra (one Postgres with a database per service, one single-node
+# KRaft Kafka) and all seven loyalty services. Ports mirror the base-url scheme the
+# services use among themselves (core 8081 … bridge 8085, BFFs 8090/8091), and the
+# cross-service URLs are overridden to the in-network service names below.
+#
+# Notes:
+#  - The four JPA services own their schema via Flyway; the databases just need to exist.
+#  - loyalty-redemption also calls a Payment Hub and a 3rd-party voucher provider. Those
+#    are external systems with no local stub, so those two flows will fail locally — the
+#    rest of the platform (membership, earning, campaigns, BFF aggregation) runs fully.
+
+name: rochallor-loyalty-platform
+
+x-backend-env: &backend-env
+  DB_USER: loyalty
+  DB_PASSWORD: loyalty
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+x-infra-deps: &infra-deps
+  postgres:
+    condition: service_healthy
+  kafka:
+    condition: service_healthy
+
+services:
+  # ---- infrastructure ------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: loyalty
+      POSTGRES_PASSWORD: loyalty
+      POSTGRES_DB: loyalty_core
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loyalty -d loyalty_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.9.0
+    ports:
+      # Containers reach the broker at kafka:9092 (INTERNAL); host tools use localhost:29092 (EXTERNAL).
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # Empty host = bind all interfaces. Do NOT write 0.0.0.0 here: the apache/kafka KRaft
+      # storage-format step rejects it as a non-routable advertised meta-address.
+      KAFKA_LISTENERS: CONTROLLER://:9093,INTERNAL://:9092,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  # ---- core backend services ----------------------------------------------
+  loyalty-core:
+    build: { context: loyalty-core, dockerfile: ../Dockerfile }
+    image: loyalty-core:local
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://postgres:5432/loyalty_core
+    ports:
+      - "8081:8081"
+    depends_on: *infra-deps
+
+  loyalty-earning:
+    build: { context: loyalty-earning, dockerfile: ../Dockerfile }
+    image: loyalty-earning:local
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://postgres:5432/loyalty_earning
+      CORE_BASE_URL: http://loyalty-core:8081
+    ports:
+      - "8082:8082"
+    depends_on: *infra-deps
+
+  loyalty-redemption:
+    build: { context: loyalty-redemption, dockerfile: ../Dockerfile }
+    image: loyalty-redemption:local
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8083
+      DB_URL: jdbc:postgresql://postgres:5432/loyalty_redemption
+      CORE_BASE_URL: http://loyalty-core:8081
+      CAMPAIGN_BASE_URL: http://loyalty-campaign:8084
+      # PAYMENT_HUB_BASE_URL / VOUCHER_PARTNER_BASE_URL: external systems, no local stub.
+    ports:
+      - "8083:8083"
+    depends_on: *infra-deps
+
+  loyalty-campaign:
+    build: { context: loyalty-campaign, dockerfile: ../Dockerfile }
+    image: loyalty-campaign:local
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8084
+      DB_URL: jdbc:postgresql://postgres:5432/loyalty_campaign
+    ports:
+      - "8084:8084"
+    depends_on: *infra-deps
+
+  loyalty-integration-bridge:
+    build: { context: loyalty-integration-bridge, dockerfile: ../Dockerfile }
+    image: loyalty-integration-bridge:local
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8085
+      VOUCHER_WEBHOOK_HMAC_SECRET: dev-only-local-secret
+    ports:
+      - "8085:8085"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ---- backends-for-frontends (aggregation only; no DB / Kafka) ------------
+  loyalty-mobile-bff:
+    build: { context: loyalty-mobile-bff, dockerfile: ../Dockerfile }
+    image: loyalty-mobile-bff:local
+    environment:
+      SERVER_PORT: 8090
+      CORE_BASE_URL: http://loyalty-core:8081
+      REDEMPTION_BASE_URL: http://loyalty-redemption:8083
+      CAMPAIGN_BASE_URL: http://loyalty-campaign:8084
+    ports:
+      - "8090:8090"
+    depends_on:
+      - loyalty-core
+      - loyalty-redemption
+      - loyalty-campaign
+
+  loyalty-admin-bff:
+    build: { context: loyalty-admin-bff, dockerfile: ../Dockerfile }
+    image: loyalty-admin-bff:local
+    environment:
+      SERVER_PORT: 8091
+      CORE_BASE_URL: http://loyalty-core:8081
+      EARNING_BASE_URL: http://loyalty-earning:8082
+      REDEMPTION_BASE_URL: http://loyalty-redemption:8083
+      CAMPAIGN_BASE_URL: http://loyalty-campaign:8084
+      BRIDGE_BASE_URL: http://loyalty-integration-bridge:8085
+    ports:
+      - "8091:8091"
+    depends_on:
+      - loyalty-core
+      - loyalty-earning
+      - loyalty-redemption
+      - loyalty-campaign
+      - loyalty-integration-bridge
+
+volumes:
+  pgdata:

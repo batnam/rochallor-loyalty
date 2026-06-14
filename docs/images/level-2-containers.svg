@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="1142px" preserveAspectRatio="none" style="width:1169px;height:1142px;" version="1.1" viewBox="0 0 1169 1142" width="1169px" zoomAndPan="magnify"><defs/><g><text fill="#000000" font-family="sans-serif" font-size="18" lengthAdjust="spacingAndGlyphs" textLength="502" x="345" y="16.708">Digital Loyalty Platform — C4 Level 2 — Static Topology</text><!--MD5=[1fde6635aee6adf954d29443c33ea7dd]
+cluster **Digital Loyalty Platform**--><rect fill="#F0F7FF" height="443" rx="10" ry="10" style="stroke: #0B4884; stroke-width: 1.0; stroke-dasharray: 7.0,7.0;" width="962" x="196" y="328.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="74" x="640" y="343.9482">«platform»</text><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="190" x="582" y="360.2451">Digital Loyalty Platform</text><!--MD5=[7a25f5b16c73f86bffc5af968777b5f9]
+cluster BFFs--><polygon fill="#FAFAFA" points="441,387.9531,480,387.9531,487,410.25,770,410.25,770,491.9531,441,491.9531,441,387.9531" style="stroke: #9E9E9E; stroke-width: 1.5;"/><line style="stroke: #9E9E9E; stroke-width: 1.5;" x1="441" x2="487" y1="410.25" y2="410.25"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="33" x="445" y="402.9482">BFFs</text><!--MD5=[c79e06e7b6ac45e8dd86d2698bc8e3e9]
+cluster Core Services--><polygon fill="#FAFAFA" points="460,515.9531,561,515.9531,568,538.25,1082,538.25,1082,619.9531,460,619.9531,460,515.9531" style="stroke: #9E9E9E; stroke-width: 1.5;"/><line style="stroke: #9E9E9E; stroke-width: 1.5;" x1="460" x2="568" y1="538.25" y2="538.25"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="95" x="464" y="530.9482">Core Services</text><!--MD5=[8ae7c0495e081ecf23c9be957bdf96e4]
+cluster Integration--><polygon fill="#FAFAFA" points="220,643.9531,301,643.9531,308,666.25,442,666.25,442,747.9531,220,747.9531,220,643.9531" style="stroke: #9E9E9E; stroke-width: 1.5;"/><line style="stroke: #9E9E9E; stroke-width: 1.5;" x1="220" x2="308" y1="666.25" y2="666.25"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="75" x="224" y="658.9482">Integration</text><!--MD5=[92a01e6c8e9adeca333062bbae5b5996]
+cluster Data Tier (Loyalty-owned)--><polygon fill="#FAFAFA" points="466,643.9531,649,643.9531,656,666.25,1134,666.25,1134,747.9531,466,747.9531,466,643.9531" style="stroke: #9E9E9E; stroke-width: 1.5;"/><line style="stroke: #9E9E9E; stroke-width: 1.5;" x1="466" x2="656" y1="666.25" y2="666.25"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="177" x="470" y="658.9482">Data Tier (Loyalty-owned)</text><!--MD5=[362b4e52262a306bb4eecdf06bac4276]
+cluster Shared Bank Infra--><polygon fill="#FAFAFA" points="243,795.9531,371,795.9531,378,818.25,593,818.25,593,899.9531,243,899.9531,243,795.9531" style="stroke: #9E9E9E; stroke-width: 1.5;"/><line style="stroke: #9E9E9E; stroke-width: 1.5;" x1="243" x2="378" y1="818.25" y2="818.25"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="122" x="247" y="810.9482">Shared Bank Infra</text><!--MD5=[14685ab3e196d4621bfb4a2a38021d76]
+cluster Host Bank Platform--><polygon fill="#FAFAFA" points="48,923.9531,184,923.9531,191,946.25,566,946.25,566,1130.9531,48,1130.9531,48,923.9531" style="stroke: #9E9E9E; stroke-width: 1.5;"/><line style="stroke: #9E9E9E; stroke-width: 1.5;" x1="48" x2="191" y1="946.25" y2="946.25"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="130" x="52" y="938.9482">Host Bank Platform</text><!--MD5=[3c0ef8c9d41b93babcea1e62c3ab35d2]
+entity mbff--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="135" x="457.5" y="422.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="504.5" y="445.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="115" x="467.5" y="462.2451">loyalty-mobile-bff</text><!--MD5=[6c7b66c92b9b9898eeb1f6b685eebdee]
+entity abff--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="131" x="622.5" y="422.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="667.5" y="445.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="111" x="632.5" y="462.2451">loyalty-admin-bff</text><!--MD5=[0d482ad21d5c7c11aa976e45da5ecfe6]
+entity core--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="98" x="476" y="550.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="504.5" y="573.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="78" x="486" y="590.2451">loyalty-core</text><!--MD5=[fbd2893c176540f2c6ff33cfe76a11dc]
+entity earn--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="119" x="946.5" y="550.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="985.5" y="573.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="99" x="956.5" y="590.2451">loyalty-earning</text><!--MD5=[6b0adfefa9545dfe462c743dba1adfb7]
+entity redm--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="147" x="604.5" y="550.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="657.5" y="573.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="127" x="614.5" y="590.2451">loyalty-redemption</text><!--MD5=[bb94e26370ada914d11899c479b8af29]
+entity camp--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="134" x="782" y="550.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="828.5" y="573.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="114" x="792" y="590.2451">loyalty-campaign</text><!--MD5=[a7320cd3549932729193ed1741cd59db]
+entity bridge--><rect fill="#0B4884" height="52.5938" style="stroke: #073661; stroke-width: 1.5;" width="190" x="236" y="678.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="41" x="310.5" y="701.9482">«svc»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="170" x="246" y="718.2451">loyalty-integration-bridge</text><!--MD5=[096cd50dac86100faf54fe3d9024bef0]
+entity coredb--><rect fill="#5D7A99" height="52.5938" style="stroke: #3D5470; stroke-width: 1.5;" width="85" x="482.5" y="678.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="48" x="501" y="701.9482">«data»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="65" x="492.5" y="718.2451">core RDS</text><!--MD5=[6bbc09aff57edf5b06b4d433f315a9ee]
+entity earndb--><rect fill="#5D7A99" height="52.5938" style="stroke: #3D5470; stroke-width: 1.5;" width="106" x="1012" y="678.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="48" x="1041" y="701.9482">«data»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="86" x="1022" y="718.2451">earning RDS</text><!--MD5=[871c2b93bb67fba86651c0cd0da36499]
+entity redmdb--><rect fill="#5D7A99" height="52.5938" style="stroke: #3D5470; stroke-width: 1.5;" width="134" x="696" y="678.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="48" x="739" y="701.9482">«data»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="114" x="706" y="718.2451">redemption RDS</text><!--MD5=[e046ca5a85fa641d50eea57ab69501f7]
+entity campdb--><rect fill="#5D7A99" height="52.5938" style="stroke: #3D5470; stroke-width: 1.5;" width="121" x="860.5" y="678.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="48" x="897" y="701.9482">«data»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="101" x="870.5" y="718.2451">campaign RDS</text><!--MD5=[b165ca7cce796f881c879adda4a6bef9]
+entity s3--><rect fill="#5D7A99" height="52.5938" style="stroke: #3D5470; stroke-width: 1.5;" width="68" x="598" y="678.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="48" x="608" y="701.9482">«data»</text><text fill="#FFFFFF" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="18" x="623" y="718.2451">S3</text><!--MD5=[a850962a84f262859c41a46d492d8d7c]
+entity msk--><rect fill="#CFD8DC" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="144" x="259" y="830.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="47" x="307.5" y="853.9482">«infra»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="124" x="269" y="870.2451">Shared MSK Kafka</text><!--MD5=[de5dc476b5cd49b5a92d294ad2af7d70]
+entity redis--><rect fill="#CFD8DC" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="143" x="433.5" y="830.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="47" x="481.5" y="853.9482">«infra»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="123" x="443.5" y="870.2451">ElastiCache Redis</text><!--MD5=[ee1fc97ef8ade6086cd940ac54c87e99]
+entity payhub--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="112" x="64" y="958.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="100" y="981.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="92" x="74" y="998.2451">Payment Hub</text><!--MD5=[bfbd250e5323caef9d2b20ab367f126d]
+entity t24--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="171" x="206.5" y="958.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="272" y="981.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="151" x="216.5" y="998.2451">Core Banking Adapter</text><!--MD5=[02410068bc5cb531dad35b46dbfbc197]
+entity custsvc--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="142" x="408" y="958.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="459" y="981.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="122" x="418" y="998.2451">Customer Service</text><!--MD5=[e6980103a72f7c06897718b1405d9217]
+entity notif--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="149" x="217.5" y="1061.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="272" y="1084.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="129" x="227.5" y="1101.2451">notification-service</text><!--MD5=[96464e485a405d94e9bd6ac3601b7b01]
+entity member--><ellipse cx="456" cy="38.4531" fill="#FEFECE" rx="8" ry="8" style="stroke: #A80036; stroke-width: 1.5;"/><path d="M456,46.4531 L456,73.4531 M443,54.4531 L469,54.4531 M456,73.4531 L443,88.4531 M456,73.4531 L469,88.4531 " fill="none" style="stroke: #A80036; stroke-width: 1.5;"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="57" x="427.5" y="103.9482">Member</text><!--MD5=[0050c6625e3b42e2857ba4d8ed699679]
+entity operator--><ellipse cx="594" cy="38.4531" fill="#FEFECE" rx="8" ry="8" style="stroke: #A80036; stroke-width: 1.5;"/><path d="M594,46.4531 L594,73.4531 M581,54.4531 L607,54.4531 M594,73.4531 L581,88.4531 M594,73.4531 L607,88.4531 " fill="none" style="stroke: #A80036; stroke-width: 1.5;"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="93" x="547.5" y="103.9482">BEP Operator</text><!--MD5=[870e13a82a9bc0252b17e3ad6e742bb1]
+entity mobile--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="156" x="378" y="156.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="436" y="179.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="136" x="388" y="196.2451">Mobile Banking App</text><!--MD5=[822df162d7b2a539750e7cb72da2bb6b]
+entity bep--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="60" x="564" y="156.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="574" y="179.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="28" x="580" y="196.2451">BEP</text><!--MD5=[ccca32b12fb5fa68a3a37ddbcc032510]
+entity apigw--><rect fill="#CFD8DC" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="139" x="455.5" y="259.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="47" x="501.5" y="282.9482">«infra»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="119" x="465.5" y="299.2451">AWS API Gateway</text><!--MD5=[99db986d38fb499b252ed01955165f04]
+entity kc--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="174" x="6" y="422.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="73" y="445.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="154" x="16" y="462.2451">Authentication Service</text><!--MD5=[505b0d1156a6c53d466640cfdf521d8f]
+entity voucher--><rect fill="#B0BEC5" height="52.5938" style="stroke: #000000; stroke-width: 1.5;" width="204" x="582" y="958.9531"/><text fill="#000000" font-family="sans-serif" font-size="14" font-style="italic" lengthAdjust="spacingAndGlyphs" textLength="40" x="664" y="981.9482">«ext»</text><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacingAndGlyphs" textLength="184" x="592" y="998.2451">3rd-Party Voucher Provider</text><!--MD5=[436cbaf5e378b6dff02af47eab8801dd]
+link member to mobile--><path d="M456,107.0631 C456,121.5031 456,137.7531 456,151.4631 " fill="none" id="member-&gt;mobile" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="456,156.7731,460,147.7731,456,151.7731,452,147.7731,456,156.7731" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[23ab45449c1215d92274f3bdf406c51d]
+link operator to bep--><path d="M594,107.0631 C594,121.5031 594,137.7531 594,151.4631 " fill="none" id="operator-&gt;bep" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="594,156.7731,598,147.7731,594,151.7731,590,147.7731,594,156.7731" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[2c7093bc2c3d788d10eab87e1eeb1339]
+link mobile to apigw--><path d="M473.59,210.2031 C483,223.9731 494.63,241.0031 504.46,255.3831 " fill="none" id="mobile-&gt;apigw" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="507.44,259.7531,505.6531,250.0677,504.614,255.6283,499.0534,254.5893,507.44,259.7531" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[95732f6b0b496d338a398a39e6e8140c]
+link bep to apigw--><path d="M576.41,210.2031 C567,223.9731 555.37,241.0031 545.54,255.3831 " fill="none" id="bep-&gt;apigw" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="542.56,259.7531,550.9466,254.5893,545.386,255.6283,544.3469,250.0677,542.56,259.7531" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[28cade631e6adefeb1a01e549faf43ac]
+link apigw to kc--><path d="M456.55,312.9631 C377.35,342.4831 247.47,390.8831 166.28,421.1431 " fill="none" id="apigw-&gt;kc" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="161.49,422.9331,171.3199,423.5446,166.1763,421.19,168.5309,416.0465,161.49,422.9331" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[f24760b4cdfe2012a22c58ad400c35f6]
+link apigw to mbff--><path d="M525,312.9631 C525,341.3831 525,387.3031 525,417.6831 " fill="none" id="apigw-&gt;mbff" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="525,422.7931,529,413.7931,525,417.7931,521,413.7931,525,422.7931" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[f64fc3cc14ffd1b0972ac5bbf3b45b3e]
+link apigw to abff--><path d="M594.86,311.6831 C599.51,314.4831 603.95,317.5631 608,320.9531 C639.54,347.3531 662.54,389.4931 675.57,418.0331 " fill="none" id="apigw-&gt;abff" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="677.74,422.8431,677.7085,412.9943,675.6947,418.2806,670.4085,416.2668,677.74,422.8431" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[ff959e3ddc637ab9558f93af218d79dc]
+link core to coredb--><path d="M525,604.2531 C525,624.3031 525,652.1731 525,673.4331 " fill="none" id="core-&gt;coredb" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="525,678.6831,529,669.6831,525,673.6831,521,669.6831,525,678.6831" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[e00b79a40369393ce5a2b8d0fe02e46f]
+link earn to earndb--><path d="M1018.08,604.2531 C1027.55,624.4731 1040.74,652.6431 1050.73,673.9731 " fill="none" id="earn-&gt;earndb" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="1052.93,678.6831,1052.7216,668.8365,1050.8031,674.1581,1045.4815,672.2395,1052.93,678.6831" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[d2811753713c65dd010b0c08455e207b]
+link redm to redmdb--><path d="M695.41,604.2531 C709.16,624.6431 728.37,653.1231 742.8,674.5031 " fill="none" id="redm-&gt;redmdb" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="745.62,678.6831,743.8944,668.9866,742.8202,674.5405,737.2663,673.4663,745.62,678.6831" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[0347181715055b5241f62b2a942d61ad]
+link camp to campdb--><path d="M863.74,604.2531 C875.34,624.5531 891.53,652.8831 903.73,674.2431 " fill="none" id="camp-&gt;campdb" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="906.28,678.6831,905.2669,668.8865,903.7901,674.3472,898.3294,672.8704,906.28,678.6831" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[e1c7f75ca9bc4efd11683f7f22ac499a]
+link redm to s3--><path d="M668.58,604.2531 C661.2,624.4731 650.91,652.6431 643.13,673.9731 " fill="none" id="redm-&gt;s3" style="stroke: #A80036; stroke-width: 1.0;"/><polygon fill="#A80036" points="641.41,678.6831,648.2518,671.5986,643.1233,673.9858,640.7361,668.8573,641.41,678.6831" style="stroke: #A80036; stroke-width: 1.0;"/><!--MD5=[7368032e8394b63235a87a35dc96d379]
+link mbff to core--><!--MD5=[63ad02a8abd5bb6339738e7417361f4a]
+link abff to earn--><!--MD5=[76566d04d28874322cf9cd88bc613f0d]
+link core to bridge--><!--MD5=[b4b0cd22279a69e02731a75aa334d32b]
+link bridge to msk--><!--MD5=[428cb44fc6716c66228fed65ab6102f2]
+link msk to payhub--><!--MD5=[6d5fa7d594540543364e0882540e72b1]
+link redis to voucher--><!--MD5=[56d1589078671bc30876ab91cb9f994b]
+link t24 to custsvc--><!--MD5=[4ee8ad6c095c1174e7873df6c30b2a3a]
+link t24 to notif--><!--MD5=[c8988f439bb2c5c1665206f2a8858b3e]
+@startuml level-2-containers
+title Digital Loyalty Platform — C4 Level 2 — Static Topology
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam nodesep 30
+skinparam ranksep 50
+
+skinparam rectangle {
+    roundCorner<<platform>>     20
+    BorderStyle<<platform>>     dashed
+    BackgroundColor<<platform>> #f0f7ff
+    BorderColor<<platform>>     #0b4884
+
+    BackgroundColor<<svc>>      #0b4884
+    FontColor<<svc>>            #ffffff
+    BorderColor<<svc>>          #073661
+
+    BackgroundColor<<data>>     #5d7a99
+    FontColor<<data>>           #ffffff
+    BorderColor<<data>>         #3d5470
+
+    BackgroundColor<<ext>>      #b0bec5
+    BackgroundColor<<infra>>    #cfd8dc
+}
+
+skinparam package {
+    BackgroundColor #fafafa
+    BorderColor     #9e9e9e
+    FontStyle       italic
+}
+
+actor "Member"       as member
+actor "BEP Operator" as operator
+
+rectangle "Mobile Banking App" <<ext>> as mobile
+rectangle "BEP"            <<ext>> as bep
+
+rectangle "AWS API Gateway" <<infra>> as apigw
+rectangle "Authentication Service" <<ext>> as kc
+
+rectangle "**Digital Loyalty Platform**" <<platform>> {
+
+  package "BFFs" {
+    rectangle "loyalty-mobile-bff" <<svc>> as mbff
+    rectangle "loyalty-admin-bff"  <<svc>> as abff
+  }
+
+  package "Core Services" {
+    rectangle "loyalty-core"       <<svc>> as core
+    rectangle "loyalty-earning"    <<svc>> as earn
+    rectangle "loyalty-redemption" <<svc>> as redm
+    rectangle "loyalty-campaign"   <<svc>> as camp
+  }
+
+  package "Integration" {
+    rectangle "loyalty-integration-bridge" <<svc>> as bridge
+  }
+
+  package "Data Tier (Loyalty-owned)" {
+    rectangle "core RDS"       <<data>> as coredb
+    rectangle "earning RDS"    <<data>> as earndb
+    rectangle "redemption RDS" <<data>> as redmdb
+    rectangle "campaign RDS"   <<data>> as campdb
+    rectangle "S3"             <<data>> as s3
+  }
+}
+
+package "Shared Bank Infra" {
+  rectangle "Shared MSK Kafka"  <<infra>> as msk
+  rectangle "ElastiCache Redis" <<infra>> as redis
+}
+
+package "Host Bank Platform" {
+  rectangle "Payment Hub"                 <<ext>> as payhub
+  rectangle "Core Banking Adapter"                 <<ext>> as t24
+  rectangle "Customer Service"        <<ext>> as custsvc
+  rectangle "notification-service"    <<ext>> as notif
+}
+
+rectangle "3rd-Party Voucher Provider" <<ext>> as voucher
+
+member   - -> mobile
+operator - -> bep
+mobile   - -> apigw
+bep      - -> apigw
+apigw    - -> kc
+apigw    - -> mbff
+apigw    - -> abff
+
+core - -> coredb
+earn - -> earndb
+redm - -> redmdb
+camp - -> campdb
+redm - -> s3
+
+mbff   -[hidden]- core
+abff   -[hidden]- earn
+core   -[hidden]- bridge
+bridge -[hidden]- msk
+msk    -[hidden]- payhub
+redis  -[hidden]- voucher
+
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 10:22:07 UTC 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 21+35-LTS
+Operating System: Linux
+Default Encoding: UTF-8
+Language: en
+Country: null
+--></g></svg>

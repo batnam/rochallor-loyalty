@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:loyalty:ingress:payment:v1",
+  "title": "Completed Payment (ingress)",
+  "description": "Loyalty Integration Contract — Layer 1, customer-scoped. One channel for the payment family, discriminated by canonical paymentType. Tolerant reader: additionalProperties allowed.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["eventId", "customerId", "occurredAt", "amount", "currency", "paymentType", "schemaVersion"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bank-stable, globally-unique idempotency key."
+    },
+    "customerId": {
+      "type": "integer",
+      "description": "Bank CIF / customer identifier (the payer)."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "amount": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["USD", "VND"]
+    },
+    "paymentType": {
+      "type": "string",
+      "enum": ["BILL_PAYMENT", "FUND_TRANSFER", "P2P_TRANSFER", "QR_PAYMENT", "TOPUP", "OTHER"],
+      "description": "Canonical payment-type discriminator. A value outside this enum is a contract violation → DLQ."
+    },
+    "billerCategory": {
+      "type": ["string", "null"],
+      "description": "For BILL_PAYMENT — open-ended biller category."
+    },
+    "recipientRelationship": {
+      "type": ["string", "null"],
+      "enum": ["OWN_ACCOUNT", "OWN_CUSTOMER", "OTHER_CUSTOMER", "EXTERNAL_BANK", null]
+    },
+    "topupTarget": {
+      "type": ["string", "null"],
+      "enum": ["MOBILE_AIRTIME", "E_WALLET", "PREPAID_CARD", null]
+    },
+    "merchantId": {
+      "type": ["string", "null"]
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    }
+  }
+}

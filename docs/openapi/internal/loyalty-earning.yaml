@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: loyalty-earning — Internal API
+  version: '0.1.0'
+  x-api-tier: internal
+  description: |
+    **Internal service-to-service API.** Not exposed at the AWS API Gateway edge. Reached only
+    from inside the Loyalty EKS cluster over **mTLS**. Caller identity is the service mTLS
+    certificate; per-end-user AuthZ is the **BFF's** job — when `loyalty-admin-bff` calls this
+    surface it has already validated the employee JWT and BEP role.
+
+    This spec documents the surface that `loyalty-earning` exposes per
+    [L3 §6](../../c4/level-3-loyalty-earning.md#6-external-edges-re-exposed-from-l2):
+    the **Earn Source registry** and **Earning Rule** authoring / dry-run / activation operations.
+
+    Hot-path Kafka topics (`loyalty.earn.translated.v1` in, `loyalty.earning.PointsEarned` out)
+    are out of scope here — they live in
+    [`docs/asyncapi/loyalty-earning.yaml`](../../asyncapi/loyalty-earning.yaml). The only sync
+    outbound call this service makes is `POST /ledger/earn` on `loyalty-core` — see
+    [`internal/loyalty-core.yaml`](loyalty-core.yaml).
+
+    **Rule activation is approval-gated:** `PATCH /rules/{ruleId}` with `status=ACTIVE`
+    is not idempotent — it raises an `ApprovalRequest` of type `RULE_ACTIVATION` and only applies
+    on `confirm`. `ARCHIVED` applies directly.
+  contact:
+    name: Loyalty Platform — 
+
+servers:
+  - url: https://loyalty-earning.loyalty.svc.cluster.local
+    description: In-cluster service DNS (Kubernetes); mTLS-only.
+
+security:
+  - mtls: []
+
+tags:
+  - name: Earn Sources
+    description: 'Internal-only. Earn Source registry read access.'
+  - name: Earning Rules
+    description: 'Internal-only. Rule authoring (constrained JSON DSL), dry-run, and status transitions.'
+
+paths:
+  /programs/{programId}/earn-sources:
+    get:
+      tags: [Earn Sources]
+      operationId: listEarnSources
+      x-internal: true
+      summary: List Earn Source registry rows for a Program.
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      responses:
+        '200':
+          description: Earn sources.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EarnSource' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /programs/{programId}/rules:
+    get:
+      tags: [Earning Rules]
+      operationId: listRules
+      x-internal: true
+      summary: List Earning Rules for a Program (all statuses).
+      parameters:
+        - $ref: '#/components/parameters/ProgramId'
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+        - name: earnSourceId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Rules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EarningRule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Earning Rules]
+      operationId: createRule
+      x-internal: true
+      summary: Author a new Earning Rule (created as DRAFT).
+      description: '`dslJson` is schema-validated against the constrained JSON DSL grammar at save time. Side-effect-free DSL — replay-safe. Activation is a separate approval-gated transition.'
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RuleCreateRequest' }
+      responses:
+        '201':
+          description: Rule created (DRAFT).
+          content: { application/json: { schema: { $ref: '#/components/schemas/EarningRule' } } }
+        '400':
+          description: DSL failed schema validation.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /programs/{programId}/rules/{ruleId}/dry-run:
+    post:
+      tags: [Earning Rules]
+      operationId: dryRunRule
+      x-internal: true
+      summary: Replay the rule against historical EarnEvents — no side effects.
+      description: |
+        Side-effect-free: same DSL Interpreter as the hot path, but no Cap Counter decrement,
+        no Ledger write, no Idempotency Key write. Dry-run consumes the EarnEvent replay log
+        (post-Bridge translation), so the operator sees exactly the input the live engine would.
+      parameters:
+        - $ref: '#/components/parameters/ProgramId'
+        - $ref: '#/components/parameters/RuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventReplayWindow:
+                  type: string
+                  description: 'ISO-8601 duration (e.g. `P30D`) or explicit `from`/`to` date range.'
+      responses:
+        '200':
+          description: Simulation result.
+          content: { application/json: { schema: { $ref: '#/components/schemas/DryRunReport' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rules/{ruleId}:
+    get:
+      tags: [Earning Rules]
+      operationId: getRule
+      x-internal: true
+      summary: Fetch a single Earning Rule.
+      parameters: [ { $ref: '#/components/parameters/RuleId' } ]
+      responses:
+        '200':
+          description: Rule.
+          content: { application/json: { schema: { $ref: '#/components/schemas/EarningRule' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Earning Rules]
+      operationId: updateRuleStatus
+      x-internal: true
+      summary: Transition a rule (DRAFT → ACTIVE → ARCHIVED).
+      description: 'Activation (→ ACTIVE) is an **economic** change and is **approval-gated** — `loyalty-admin-bff` raises a `RULE_ACTIVATION` approval-request rather than calling this directly. Archive applies immediately.'
+      parameters: [ { $ref: '#/components/parameters/RuleId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [ACTIVE, ARCHIVED] }
+                bepApprovalRef: { type: string, nullable: true, description: 'Required when `status=ACTIVE` (proof BEP approved the activation).' }
+      responses:
+        '200':
+          description: Updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/EarningRule' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Illegal transition or missing approval reference.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+components:
+  securitySchemes:
+    mtls:
+      type: mutualTLS
+      description: Service-to-service mTLS only. See `loyalty-core` internal spec for full description.
+
+  parameters:
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+
+  responses:
+    Unauthorized:
+      description: Missing / invalid client certificate.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    NotFound:
+      description: Resource not found.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  schemas:
+    EarnSource:
+      type: object
+      properties:
+        earnSourceId:    { type: integer, format: int64 }
+        earnSourceCode:  { type: string, example: CARD_SPEND, description: 'v1 catalogue: `CARD_SPEND`, `BILL_PAYMENT`, `FUND_TRANSFER`, `TOPUP`, `TERM_DEPOSIT_OPENED`.' }
+        displayName:     { type: string }
+        activeByDefault: { type: boolean }
+
+    EarningRule:
+      type: object
+      properties:
+        ruleId:         { type: integer, format: int64 }
+        programId:      { type: integer, format: int64 }
+        earnSourceId:   { type: integer, format: int64 }
+        dslJson:        { type: object, additionalProperties: true }
+        version:        { type: integer }
+        status:         { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+        effectiveFrom:  { type: string, format: date-time, nullable: true }
+        effectiveTo:    { type: string, format: date-time, nullable: true }
+        campaignId:     { type: integer, format: int64, nullable: true }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    RuleCreateRequest:
+      type: object
+      required: [earnSourceId, dslJson]
+      properties:
+        earnSourceId:   { type: integer, format: int64 }
+        dslJson:        { type: object, additionalProperties: true, description: 'Constrained JSON DSL.' }
+        effectiveFrom:  { type: string, format: date-time, nullable: true }
+        effectiveTo:    { type: string, format: date-time, nullable: true }
+        campaignId:     { type: integer, format: int64, nullable: true }
+
+    DryRunReport:
+      type: object
+      properties:
+        matchedEvents:   { type: integer }
+        totalEvents:     { type: integer }
+        totalQualifying: { type: integer, format: int64 }
+        totalRedeemable: { type: integer, format: int64 }
+        sample:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              eventId:         { type: string }
+              qualifyingDelta: { type: integer, format: int64 }
+              redeemableDelta: { type: integer, format: int64 }
+
+    Problem:
+      type: object
+      description: RFC 7807 Problem with a Loyalty-specific `code`.
+      properties:
+        type:     { type: string, format: uri }
+        title:    { type: string }
+        status:   { type: integer }
+        detail:   { type: string }
+        code:     { type: string, example: DSL_INVALID }
+        instance: { type: string }

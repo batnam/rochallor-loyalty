@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:loyalty:ingress:reversal:v1",
+  "title": "Payment/Earn Reversal (ingress)",
+  "description": "Loyalty Integration Contract — Layer 1, customer-scoped. Tolerant reader.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["eventId", "customerId", "occurredAt", "originalEventId", "reversalEventId", "schemaVersion"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1 },
+    "customerId": { "type": "integer" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "originalEventId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "eventId of the earn event being reversed; loyalty-core matches source_ref on it."
+    },
+    "reversalEventId": { "type": "string", "minLength": 1 },
+    "amount": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "currency": { "type": ["string", "null"], "enum": ["USD", "VND", null] },
+    "schemaVersion": { "type": "integer", "const": 1 }
+  }
+}

@@ -1,0 +1,21 @@
+// loyalty-redemption :domain — the pure decision kernel.
+//
+// No Spring, no JPA, no Jackson: just the two-phase Saga decider + state machine, the Eligibility
+// engine, the Fulfillment SPI + its value types, and the catalogue read port. The `java` plugin only —
+// any Spring/JPA import here is a compile error, which is the whole point of the separate subproject.
+plugins {
+    java
+}
+
+group = "io.github.batnam.loyalty"
+version = "0.1.0"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}

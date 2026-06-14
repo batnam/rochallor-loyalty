@@ -1,0 +1,4 @@
+# E2E test-harness deps (test-side only; nothing ships to production).
+pytest==8.3.4
+requests==2.32.3
+confluent-kafka==2.6.1

@@ -1,0 +1,340 @@
+openapi: 3.0.3
+info:
+  title: loyalty-campaign — Internal API
+  version: '0.1.0'
+  x-api-tier: internal
+  description: |
+    **Internal service-to-service API.** Not exposed at the AWS API Gateway edge. Reached only
+    from inside the Loyalty EKS cluster over **mTLS**. Caller identity is the service mTLS
+    certificate; end-user AuthZ is the BFF's job.
+
+    This spec documents the surface that `loyalty-campaign` exposes per
+    [L3 §6](../../c4/level-3-loyalty-campaign.md#6-external-edges-re-exposed-from-l2):
+    Campaign + Drawing CRUD called by `loyalty-admin-bff`, active-list reads called by both BFFs,
+    and the **T-13 surface** — `POST /drawings/{id}/entries` — called by `loyalty-redemption`'s
+    `SweepstakesAdapter` from inside a Member's redemption Saga.
+
+    Winner Selection runs internally via a Spring `@Scheduled` Drawing Scheduler; it
+    has no inbound REST trigger. `loyalty.campaign.*` outbound events are documented in
+    [`docs/asyncapi/loyalty-campaign.yaml`](../../asyncapi/loyalty-campaign.yaml).
+
+    **Campaign activation is approval-gated:** a Campaign that changes earning
+    multipliers is **economic** — `loyalty-admin-bff` raises a `TIER_CHANGE` / Campaign-activation
+    approval-request rather than calling `PATCH` directly with `status=ACTIVE`.
+  contact:
+    name: Loyalty Platform — 
+
+servers:
+  - url: https://loyalty-campaign.loyalty.svc.cluster.local
+    description: In-cluster service DNS (Kubernetes); mTLS-only.
+
+security:
+  - mtls: []
+
+tags:
+  - name: Campaigns
+    description: 'Internal-only. Per-Program Campaign CRUD + active listing.'
+  - name: Drawings
+    description: 'Internal-only. Sweepstakes Drawing CRUD + winners view.'
+  - name: Entries (T-13)
+    description: 'Internal-only. The T-13 surface — `loyalty-redemption.SweepstakesAdapter` records a Member entry into an open Drawing.'
+
+paths:
+  /programs/{programId}/campaigns:
+    get:
+      tags: [Campaigns]
+      operationId: listCampaigns
+      x-internal: true
+      summary: List Campaigns for a Program.
+      parameters:
+        - $ref: '#/components/parameters/ProgramId'
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, SCHEDULED, LIVE, ENDED, ARCHIVED] }
+      responses:
+        '200':
+          description: Campaigns.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Campaign' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Campaigns]
+      operationId: createCampaign
+      x-internal: true
+      summary: Author a Campaign (DRAFT).
+      parameters: [ { $ref: '#/components/parameters/ProgramId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CampaignCreateRequest' }
+      responses:
+        '201':
+          description: Campaign created.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Campaign' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /campaigns/{campaignId}:
+    get:
+      tags: [Campaigns]
+      operationId: getCampaign
+      x-internal: true
+      summary: Campaign detail.
+      parameters: [ { $ref: '#/components/parameters/CampaignId' } ]
+      responses:
+        '200':
+          description: Campaign.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Campaign' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Campaigns]
+      operationId: updateCampaignStatus
+      x-internal: true
+      summary: Transition a Campaign (DRAFT → SCHEDULED → LIVE → ENDED → ARCHIVED).
+      description: 'LIVE transition is **approval-gated** when the Campaign carries earning multipliers.'
+      parameters: [ { $ref: '#/components/parameters/CampaignId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:         { type: string, enum: [SCHEDULED, LIVE, ENDED, ARCHIVED] }
+                bepApprovalRef: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Campaign' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Illegal transition.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /campaigns/{campaignId}/drawings:
+    get:
+      tags: [Drawings]
+      operationId: listDrawingsForCampaign
+      x-internal: true
+      summary: List Drawings under a Campaign.
+      parameters: [ { $ref: '#/components/parameters/CampaignId' } ]
+      responses:
+        '200':
+          description: Drawings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Drawing' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Drawings]
+      operationId: createDrawing
+      x-internal: true
+      summary: Add a sweepstakes Drawing to a Campaign.
+      parameters: [ { $ref: '#/components/parameters/CampaignId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DrawingCreateRequest' }
+      responses:
+        '201':
+          description: Drawing created (OPEN).
+          content: { application/json: { schema: { $ref: '#/components/schemas/Drawing' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /drawings/{drawingId}:
+    get:
+      tags: [Drawings]
+      operationId: getDrawing
+      x-internal: true
+      summary: Drawing detail.
+      parameters: [ { $ref: '#/components/parameters/DrawingId' } ]
+      responses:
+        '200':
+          description: Drawing.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Drawing' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /drawings/{drawingId}/entries:
+    post:
+      tags: [Entries (T-13)]
+      operationId: recordDrawingEntry
+      x-internal: true
+      summary: 'T-13: record a Member entry into an open Drawing.'
+      description: |
+        Called by `loyalty-redemption`'s `SweepstakesAdapter` inside the Member's redemption Saga.
+        Idempotent on `idempotencyKey` (derived from the Saga key). Window-gated at the DB layer
+        via conditional INSERT — late entries fail atomically with `409`. See [L3 §3.2](../../c4/level-3-loyalty-campaign.md#32-entry--authoring-path).
+      parameters: [ { $ref: '#/components/parameters/DrawingId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [memberId, sagaId, idempotencyKey]
+              properties:
+                memberId:       { type: integer, format: int64 }
+                sagaId:         { type: integer, format: int64, description: 'Calling Saga ID (for audit linking).' }
+                idempotencyKey: { type: string, maxLength: 128 }
+                weight:         { type: integer, nullable: true, description: 'Per-entry weight for `WEIGHTED` selection (frozen at entry time).' }
+      responses:
+        '200':
+          description: Idempotent replay — same entry recorded.
+          content: { application/json: { schema: { $ref: '#/components/schemas/DrawingEntry' } } }
+        '201':
+          description: Entry recorded.
+          content: { application/json: { schema: { $ref: '#/components/schemas/DrawingEntry' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'Drawing closed, outside entry window, or already drawn.'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /drawings/{drawingId}/winners:
+    get:
+      tags: [Drawings]
+      operationId: listDrawingWinners
+      x-internal: true
+      summary: List winner records (audit view).
+      description: 'K immutable winner rows once `status=CLOSED`; empty if `status=OPEN` or `VOID`. Every row includes the deterministic seed (NULL for `FIRST_N`) — auditor + HMAC secret reproduce the selection.'
+      parameters: [ { $ref: '#/components/parameters/DrawingId' } ]
+      responses:
+        '200':
+          description: Winners.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WinnerRecord' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    mtls:
+      type: mutualTLS
+      description: Service-to-service mTLS only.
+
+  parameters:
+    ProgramId:
+      name: programId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    CampaignId:
+      name: campaignId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    DrawingId:
+      name: drawingId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+
+  responses:
+    BadRequest:
+      description: Malformed request body.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Unauthorized:
+      description: Missing / invalid client certificate.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    NotFound:
+      description: Resource not found.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  schemas:
+    ProgramRef:
+      type: object
+      required: [programId, programCode]
+      properties:
+        programId:   { type: integer, format: int64 }
+        programCode: { type: string, maxLength: 32 }
+
+    Campaign:
+      allOf:
+        - $ref: '#/components/schemas/ProgramRef'
+        - type: object
+          properties:
+            campaignId:     { type: integer, format: int64 }
+            name:           { type: string }
+            status:         { type: string, enum: [DRAFT, SCHEDULED, LIVE, ENDED, ARCHIVED] }
+            startsAt:       { type: string, format: date-time }
+            endsAt:         { type: string, format: date-time }
+            multiplierRule: { type: object, additionalProperties: true, nullable: true }
+            targetSegment:  { type: object, additionalProperties: true, nullable: true }
+
+    CampaignCreateRequest:
+      type: object
+      required: [name, startsAt, endsAt]
+      properties:
+        name:           { type: string }
+        startsAt:       { type: string, format: date-time }
+        endsAt:         { type: string, format: date-time }
+        multiplierRule: { type: object, additionalProperties: true, nullable: true }
+        targetSegment:  { type: object, additionalProperties: true, nullable: true }
+
+    Drawing:
+      type: object
+      properties:
+        drawingId:         { type: integer, format: int64 }
+        campaignId:        { type: integer, format: int64 }
+        prize:             { type: object, additionalProperties: true }
+        entryWindowStart:  { type: string, format: date-time }
+        entryWindowEnd:    { type: string, format: date-time }
+        drawAt:            { type: string, format: date-time }
+        selectionStrategy: { type: string, enum: [SEEDED_RNG, WEIGHTED, FIRST_N] }
+        winnersCount:      { type: integer, default: 1 }
+        status:            { type: string, enum: [OPEN, CLOSED, VOID] }
+
+    DrawingCreateRequest:
+      type: object
+      required: [entryWindowStart, entryWindowEnd, drawAt]
+      properties:
+        prize:             { type: object, additionalProperties: true }
+        entryWindowStart:  { type: string, format: date-time }
+        entryWindowEnd:    { type: string, format: date-time }
+        drawAt:            { type: string, format: date-time }
+        selectionStrategy: { type: string, enum: [SEEDED_RNG, WEIGHTED, FIRST_N], default: SEEDED_RNG }
+        winnersCount:      { type: integer, default: 1, minimum: 1 }
+
+    DrawingEntry:
+      type: object
+      properties:
+        entryId:        { type: integer, format: int64 }
+        drawingId:      { type: integer, format: int64 }
+        memberId:       { type: integer, format: int64 }
+        weight:         { type: integer, nullable: true }
+        createdAt:      { type: string, format: date-time }
+
+    WinnerRecord:
+      type: object
+      properties:
+        drawingId:    { type: integer, format: int64 }
+        memberId:     { type: integer, format: int64 }
+        winnerIndex:  { type: integer }
+        seedHex:      { type: string, nullable: true, description: 'NULL for `FIRST_N` strategy (no RNG used).' }
+        drawnAt:      { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: RFC 7807 Problem with a Loyalty-specific `code`.
+      properties:
+        type:     { type: string, format: uri }
+        title:    { type: string }
+        status:   { type: integer }
+        detail:   { type: string }
+        code:     { type: string, example: DRAWING_CLOSED }
+        instance: { type: string }

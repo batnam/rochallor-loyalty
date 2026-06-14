@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: loyalty-earning
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/loyalty_earning}
+    username: ${DB_USER:loyalty}
+    password: ${DB_PASSWORD:loyalty}
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Flyway owns the schema; Hibernate only validates the mapping
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: loyalty-earning
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    listener:
+      ack-mode: record
+
+# Canonical channel names + outbound endpoints. A deployment may override via env/config.
+earning:
+  topics:
+    earn-translated: loyalty.earn.translated.v1     # consumed (from loyalty-integration-bridge)
+    points-earned: loyalty.earning.points_earned.v1 # produced (after Earned Ledger entries written)
+  # v1 single Program, 1:1 customer↔member. programId carried on every event from v1.
+  default-program-id: 1
+  # loyalty-core Ledger API + member lookup (mTLS in-cluster; plain http for local/test).
+  core:
+    base-url: ${CORE_BASE_URL:http://localhost:8081}
+  outbox:
+    relay-batch-size: 100
+  # nightly purge of expired cap_counter windows; cron in server TZ, ShedLock-guarded across pods.
+  cap-purge:
+    cron: "0 15 3 * * *"
+
+logging:
+  level:
+    io.github.batnam.loyalty.earning: DEBUG
