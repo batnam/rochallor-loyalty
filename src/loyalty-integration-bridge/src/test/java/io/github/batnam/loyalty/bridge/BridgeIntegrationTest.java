@@ -101,6 +101,35 @@ class BridgeIntegrationTest {
     }
 
     @Test
+    void reversalIngressBecomesCanonicalPaymentReversedEvent() throws Exception {
+        String body = """
+                {"eventId":"it:rev:1","customerId":100990004,"occurredAt":"2026-05-29T13:00:00Z",
+                 "originalEventId":"it:cs:1","reversalEventId":"it:rev:1:rb",
+                 "amount":42.50,"currency":"USD","schemaVersion":1}""";
+        template.send("loyalty.ingress.reversal.v1", "100990004", body);
+
+        JsonNode reversed = awaitEventWithId("loyalty.payment.reversed.v1", "it:rev:1");
+        assertThat(reversed.path("eventType").asText()).isEqualTo("loyalty.payment.reversed.v1");
+        assertThat(reversed.path("customerId").asLong()).isEqualTo(100990004L);
+        assertThat(reversed.path("originalEventId").asText()).isEqualTo("it:cs:1"); // core matches source_ref
+        assertThat(reversed.path("reversalEventId").asText()).isEqualTo("it:rev:1:rb");
+        assertThat(reversed.path("currency").asText()).isEqualTo("USD");
+    }
+
+    @Test
+    void customerLifecycleIngressBecomesCanonicalMemberLifecycleEvent() throws Exception {
+        String body = """
+                {"eventId":"it:lc:1","customerId":100990005,"occurredAt":"2026-05-29T14:00:00Z",
+                 "lifecycleType":"CUSTOMER_CLOSED","schemaVersion":1}""";
+        template.send("loyalty.ingress.customer_lifecycle.v1", "100990005", body);
+
+        JsonNode lifecycle = awaitEventWithId("loyalty.member.lifecycle.v1", "it:lc:1");
+        assertThat(lifecycle.path("eventType").asText()).isEqualTo("loyalty.member.lifecycle.v1");
+        assertThat(lifecycle.path("customerId").asLong()).isEqualTo(100990005L);
+        assertThat(lifecycle.path("lifecycleType").asText()).isEqualTo("CUSTOMER_CLOSED"); // preserved
+    }
+
+    @Test
     void schemaInvalidCardSpendGoesToDlq() throws Exception {
         // missing required amount + currency → fails JSON Schema → per-channel DLQ
         String body = """

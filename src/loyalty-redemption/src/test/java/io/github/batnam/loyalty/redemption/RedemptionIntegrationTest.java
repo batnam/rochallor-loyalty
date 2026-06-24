@@ -34,6 +34,7 @@ import org.testcontainers.utility.DockerImageName;
 import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -318,6 +319,72 @@ class RedemptionIntegrationTest {
         assertThat(status).isEqualTo(409);
         assertThat(second.toString()).contains("INVENTORY_EXHAUSTED");
         assertThat(inventories.findById(rewardId).orElseThrow().getRemaining()).isZero();
+    }
+
+    @Test
+    void tierBoostRedemptionGrantsQualifyingViaCoreAndCommits() {
+        // TIER_BOOST: redeemable spend committed via the normal reservation, PLUS a qualifying-only grant
+        // posted to core's earning seam (POST /ledger/earn). The grant is keyed on the Saga.
+        STUBS.stubFor(post(urlEqualTo("/ledger/earn")).willReturn(okJson("""
+                {"entryId":1234,"memberId":%d,"programId":%d,"entryType":"Earned",
+                 "qualifyingDelta":2000,"redeemableDelta":0,"sourceRef":"tierboost","createdAt":"2026-05-30T10:15:00Z"}"""
+                .formatted(MEMBER, PROGRAM))));
+        long rewardId = activeReward("TIER_BOOST", 5000, "{\"qualifyingDelta\":2000}", null);
+
+        StringBuilder body = new StringBuilder();
+        int status = postJson("/redemptions", redemption(rewardId), Map.of("Idempotency-Key", "tb-1"), body);
+
+        assertThat(status).isEqualTo(200);
+        assertThat(body.toString()).contains("\"status\":\"COMMITTED\"");
+        // Redeemable spend committed via the normal reservation.
+        assertThat(STUBS.findAll(postRequestedFor(urlPathMatching("/reservations/\\d+/commit")))).hasSize(1);
+        // Qualifying-only grant: redeemableDelta 0, qualifyingDelta +2000, earnSourceCode TIER_BOOST,
+        // sourceRef == Idempotency-Key == "tierboost-<sagaId>".
+        long sagaId = mapper(body).path("redemptionId").asLong();
+        String sourceRef = "tierboost-" + sagaId;
+        assertThat(STUBS.findAll(postRequestedFor(urlEqualTo("/ledger/earn"))
+                .withHeader("Idempotency-Key", equalTo(sourceRef))
+                .withRequestBody(equalToJson(
+                        "{\"memberId\":" + MEMBER + ",\"programId\":" + PROGRAM
+                                + ",\"earnSourceCode\":\"TIER_BOOST\",\"sourceRef\":\"" + sourceRef + "\""
+                                + ",\"qualifyingDelta\":2000,\"redeemableDelta\":0}",
+                        true, true)))).hasSize(1);
+        // Completed event carries the core entry id as the adapter's external ref.
+        assertThat(outboxOf("RedemptionCompleted").getPayload()).contains("\"externalRef\":\"1234\"");
+    }
+
+    @Test
+    void materialGoodsStubReservesCommitsAndEmitsSyntheticShipmentRef() {
+        long rewardId = activeReward("MATERIAL_GOODS", 5000, "{\"item\":\"MUG\"}", null);
+
+        StringBuilder body = new StringBuilder();
+        int status = postJson("/redemptions", redemption(rewardId), Map.of("Idempotency-Key", "mg-1"), body);
+
+        assertThat(status).isEqualTo(200);
+        assertThat(body.toString()).contains("\"status\":\"COMMITTED\"");
+        assertThat(reserveCalls()).isEqualTo(1);
+        assertThat(STUBS.findAll(postRequestedFor(urlPathMatching("/reservations/\\d+/commit")))).hasSize(1);
+        // Stub adapter: no real external call, synthetic shipment ref SHP-<rewardId>-<sagaId>.
+        long sagaId = mapper(body).path("redemptionId").asLong();
+        assertThat(outboxOf("RedemptionCompleted").getPayload())
+                .contains("\"externalRef\":\"SHP-" + rewardId + "-" + sagaId + "\"");
+    }
+
+    @Test
+    void charityDonationStubReservesCommitsAndEmitsSyntheticReceiptRef() {
+        long rewardId = activeReward("CHARITY_DONATION", 5000, "{\"charity\":\"RED-CROSS\"}", null);
+
+        StringBuilder body = new StringBuilder();
+        int status = postJson("/redemptions", redemption(rewardId), Map.of("Idempotency-Key", "cd-1"), body);
+
+        assertThat(status).isEqualTo(200);
+        assertThat(body.toString()).contains("\"status\":\"COMMITTED\"");
+        assertThat(reserveCalls()).isEqualTo(1);
+        assertThat(STUBS.findAll(postRequestedFor(urlPathMatching("/reservations/\\d+/commit")))).hasSize(1);
+        // Stub adapter: no real external call, synthetic donation receipt ref DON-<rewardId>-<sagaId>.
+        long sagaId = mapper(body).path("redemptionId").asLong();
+        assertThat(outboxOf("RedemptionCompleted").getPayload())
+                .contains("\"externalRef\":\"DON-" + rewardId + "-" + sagaId + "\"");
     }
 
     private JsonNode mapper(StringBuilder body) {

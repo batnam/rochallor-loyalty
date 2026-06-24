@@ -42,7 +42,6 @@ public interface CapRepository extends JpaRepository<CapCounter, CapCounter.Key>
      * Used to honour the "more restrictive applies" rule where a source cap may absorb only part of a
      * rule's award. The window row must already exist (created via {@link #ensureCounter}).
      */
-    @Modifying
     @Query(value = """
             WITH before AS (
                 SELECT remaining AS old FROM cap_counter

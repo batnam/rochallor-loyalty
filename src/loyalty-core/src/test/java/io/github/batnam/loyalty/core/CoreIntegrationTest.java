@@ -91,6 +91,7 @@ class CoreIntegrationTest {
     @Autowired ProgramExpiryProcessor expiry;
     @Autowired io.github.batnam.loyalty.core.program.ProgramConfigService programConfig;
     @Autowired io.github.batnam.loyalty.core.job.TierReevaluationProcessor tierReeval;
+    @Autowired io.github.batnam.loyalty.core.job.TcsGraceJob tcsGraceJob;
     @Autowired MemberRepository members;
     @Autowired LedgerRepository ledgerRepo;
     @Autowired CohortRepository cohorts;
@@ -317,7 +318,76 @@ class CoreIntegrationTest {
         }
     }
 
+    @Test
+    void tcsGraceJobSuspendsGraceExpiredAndReacceptanceReactivates() {
+        long m = newMember(2015);   // optIn(..., 1) -> accepts tcs version 1, status ACTIVE
+
+        // Advance the Program to version 2 and backdate when v2 became effective to MORE than grace-days
+        // (30) ago, so the Member's 30-day grace window has elapsed (GRACE_EXPIRED). Program is shared
+        // @Immutable seed state, so mutate via native SQL + clear, and restore in finally.
+        setProgramTcs(PROGRAM, 2, Instant.now().minus(40, ChronoUnit.DAYS));
+        try {
+            tcsGraceJob.run();
+            assertThat(members.findById(m).orElseThrow().getStatus()).isEqualTo(MemberStatus.SUSPENDED_TCS);
+
+            // Re-accepting the current version lifts the suspension back to ACTIVE.
+            membership.acceptTcs(m, 2);
+            assertThat(members.findById(m).orElseThrow().getStatus()).isEqualTo(MemberStatus.ACTIVE);
+        } finally {
+            setProgramTcs(PROGRAM, 1, Instant.now());
+        }
+    }
+
+    @Test
+    void tierReflectsOnlyInWindowQualifyingForCalendarYear() {
+        // Switch the seed Program to CALENDAR_YEAR qualifying. Qualifying earned before Jan 1 of the
+        // current UTC year is out of the window, so it must NOT lift the Member into SILVER (threshold
+        // 50_000); only in-window qualifying counts. The post-write Tier authority uses the Program's
+        // metric, so switch it BEFORE the appends. Program is shared @Immutable seed state — mutate via
+        // native SQL + clear, and restore to ROLLING_12_MONTHS in finally.
+        setProgramQualifyingMetric(PROGRAM, "CALENDAR_YEAR");
+        try {
+            long m = newMember(2016);
+            Instant beforeThisYear = Instant.now().atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                    .withDayOfYear(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                    .minus(10, ChronoUnit.DAYS);   // last year, out of the calendar-year window
+            ledger.appendEarn(m, PROGRAM, "earn:2016:old", 50_000, 0, "CARD_SPEND", "USD", beforeThisYear);
+            assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("BRONZE");
+
+            // An in-window earn (now) that crosses the threshold lifts the tier.
+            ledger.appendEarn(m, PROGRAM, "earn:2016:new", 50_000, 0, "CARD_SPEND", "USD", Instant.now());
+            assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("SILVER");
+        } finally {
+            setProgramQualifyingMetric(PROGRAM, "ROLLING_12_MONTHS");
+        }
+    }
+
     // --- helpers -------------------------------------------------------------
+
+    private void setProgramTcs(long programId, int version, Instant effectiveAt) {
+        new org.springframework.transaction.support.TransactionTemplate(txManager).execute(status -> {
+            em.createNativeQuery("UPDATE program SET current_tcs_version = :v, tcs_version_effective_at = :at WHERE program_id = :id")
+                    .setParameter("v", version)
+                    .setParameter("at", java.sql.Timestamp.from(effectiveAt))
+                    .setParameter("id", programId)
+                    .executeUpdate();
+            em.flush();
+            em.clear();   // evict the @Immutable Program so callers reload the mutated row
+            return null;
+        });
+    }
+
+    private void setProgramQualifyingMetric(long programId, String metric) {
+        new org.springframework.transaction.support.TransactionTemplate(txManager).execute(status -> {
+            em.createNativeQuery("UPDATE program SET qualifying_metric = :m WHERE program_id = :id")
+                    .setParameter("m", metric)
+                    .setParameter("id", programId)
+                    .executeUpdate();
+            em.flush();
+            em.clear();   // evict the @Immutable Program so the Tier authority reloads the mutated row
+            return null;
+        });
+    }
 
     private void bumpProgramTcsVersion(long programId, int version) {
         new org.springframework.transaction.support.TransactionTemplate(txManager).execute(status -> {

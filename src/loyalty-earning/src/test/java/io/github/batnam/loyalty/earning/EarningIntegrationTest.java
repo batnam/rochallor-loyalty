@@ -115,6 +115,7 @@ class EarningIntegrationTest {
     @Autowired ObjectMapper mapper;
     @Autowired Environment env;
     @Autowired io.github.batnam.loyalty.earning.caps.CapService capService;
+    @Autowired javax.sql.DataSource dataSource;
 
     private RestClient http;
 
@@ -141,6 +142,13 @@ class EarningIntegrationTest {
         caps.deleteAll();
         replayStore.deleteAll();
         ruleRepo.deleteAll();
+        // earn_source_cap is seeded empty; clear any row a prior test inserted so caps stay opt-in.
+        try (java.sql.Connection c = dataSource.getConnection();
+             var st = c.createStatement()) {
+            st.executeUpdate("DELETE FROM earn_source_cap");
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException(e);
+        }
 
         http = RestClient.create("http://localhost:" + env.getProperty("local.server.port"));
 
@@ -182,6 +190,30 @@ class EarningIntegrationTest {
 
     private int ledgerCalls() {
         return CORE.findAll(postRequestedFor(urlEqualTo("/ledger/earn"))).size();
+    }
+
+    /** Insert (replacing any prior) a Source-Aggregate Cap row for CARD_SPEND (V3 earn_source_cap). */
+    private void seedSourceCap(Long dailyCap, Long monthlyCap, Long lifetimeCap) {
+        try (java.sql.Connection c = dataSource.getConnection()) {
+            try (var del = c.prepareStatement(
+                    "DELETE FROM earn_source_cap WHERE program_id = ? AND earn_source_code = ?")) {
+                del.setLong(1, PROGRAM);
+                del.setString(2, "CARD_SPEND");
+                del.executeUpdate();
+            }
+            try (var ins = c.prepareStatement(
+                    "INSERT INTO earn_source_cap (program_id, earn_source_code, daily_cap, monthly_cap, lifetime_cap) "
+                            + "VALUES (?, ?, ?, ?, ?)")) {
+                ins.setLong(1, PROGRAM);
+                ins.setString(2, "CARD_SPEND");
+                if (dailyCap == null) ins.setNull(3, java.sql.Types.BIGINT); else ins.setLong(3, dailyCap);
+                if (monthlyCap == null) ins.setNull(4, java.sql.Types.BIGINT); else ins.setLong(4, monthlyCap);
+                if (lifetimeCap == null) ins.setNull(5, java.sql.Types.BIGINT); else ins.setLong(5, lifetimeCap);
+                ins.executeUpdate();
+            }
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private JsonNode pointsEarnedOutbox() throws Exception {
@@ -301,6 +333,45 @@ class EarningIntegrationTest {
         assertThat(evt.path("eventType").asText()).isEqualTo("PointsEarned");
         assertThat(evt.path("memberId").asLong()).isEqualTo(MEMBER);
         assertThat(evt.path("totalRedeemableDelta").asLong()).isEqualTo(2);
+    }
+
+    @Test
+    void sourceAggregateCapClampsTotalAcrossRulesForTheSource() throws Exception {
+        // CAP-005: two ACTIVE rules for CARD_SPEND each award FIXED 10 (qualifying=redeemable=10),
+        // so capPoints per fire = 10, total demand = 20. A program-level source daily cap of 15
+        // must clamp the AGGREGATE to 15: first fire takes 10, the second is partial-granted 5.
+        seedSourceCap(15L, null, null);
+        activeRule("""
+            {"dslVersion":1,"earnSource":"CARD_SPEND",
+             "rows":[{"when":{"amount":"*"},"earn":{"type":"FIXED","points":10}}]}""");
+        activeRule("""
+            {"dslVersion":1,"earnSource":"CARD_SPEND",
+             "rows":[{"when":{"amount":"*"},"earn":{"type":"FIXED","points":10}}]}""");
+
+        engine.process(cardSpend("evt-srccap-1", 1), MEMBER_REF);
+
+        // Both rules fire (each granted > 0), but the source cap drops the over-the-cap portion:
+        // 10 (first rule, full) + 5 (second rule, scaled down) = 15.
+        assertThat(ledgerCalls()).isEqualTo(2);
+        assertThat(pointsEarnedOutbox().path("totalRedeemableDelta").asLong()).isEqualTo(15);
+    }
+
+    @Test
+    void tierEarnMultiplierMultipliesAwardedPoints() throws Exception {
+        // RULE-006 / Gap 5B: a tierMultiplier:true rule multiplies the base award by the member's
+        // tier earnMultiplier (here 2.0, surfaced by core's /members/lookup → MemberRef.earnMultiplier).
+        MemberRef tierMember = new MemberRef(MEMBER, PROGRAM, "ACTIVE", new java.math.BigDecimal("2.0"));
+        activeRule("""
+            {"dslVersion":1,"earnSource":"CARD_SPEND","tierMultiplier":true,
+             "rows":[{"when":{"amount":"*"},"earn":{"type":"FIXED","points":10}}]}""");
+
+        engine.process(cardSpend("evt-tier-1", 1), tierMember);
+
+        // base 10 × tier multiplier 2.0 = 20.
+        assertThat(ledgerCalls()).isEqualTo(1);
+        assertThat(CORE.findAll(postRequestedFor(urlEqualTo("/ledger/earn"))).get(0).getBodyAsString())
+                .contains("\"redeemableDelta\":20");
+        assertThat(pointsEarnedOutbox().path("totalRedeemableDelta").asLong()).isEqualTo(20);
     }
 
     private JsonNode awaitEvent(String topic, String marker) throws Exception {
