@@ -25,6 +25,7 @@ bridge:
     ingress-payment: loyalty.ingress.payment.v1
     ingress-reversal: loyalty.ingress.reversal.v1
     ingress-customer-lifecycle: loyalty.ingress.customer_lifecycle.v1
+    ingress-term-deposit: loyalty.ingress.term_deposit.v1
     earn-translated: loyalty.earn.translated.v1
     payment-reversed: loyalty.payment.reversed.v1
     member-lifecycle: loyalty.member.lifecycle.v1
@@ -34,6 +35,7 @@ bridge:
     payment-dlq: loyalty.ingress.payment.v1.dlq
     reversal-dlq: loyalty.ingress.reversal.v1.dlq
     lifecycle-dlq: loyalty.ingress.customer_lifecycle.v1.dlq
+    term-deposit-dlq: loyalty.ingress.term_deposit.v1.dlq
   # Loyalty-owned, bank-uniform paymentType → earn_source routing.
   payment:
     fallback-earn-source: PAYMENT_COMPLETED   # inactive; EMIT_FALLBACK_AND_ALERT for unmapped values

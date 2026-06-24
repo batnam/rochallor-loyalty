@@ -73,6 +73,22 @@ class BridgeIntegrationTest {
     }
 
     @Test
+    void termDepositIngressBecomesCanonicalEarnEvent() throws Exception {
+        String body = """
+                {"eventId":"it:td:1","customerId":100990003,"occurredAt":"2026-05-29T12:00:00Z",
+                 "amount":10000.00,"currency":"VND","termMonths":12,"schemaVersion":1}""";
+        template.send("loyalty.ingress.term_deposit.v1", "100990003", body);
+
+        JsonNode earn = awaitEventWithId("loyalty.earn.translated.v1", "it:td:1");
+        assertThat(earn.path("source").asText()).isEqualTo("TERM_DEPOSIT_OPENED");
+        assertThat(earn.path("customerId").asLong()).isEqualTo(100990003L);
+        assertThat(earn.path("payload").path("currency").asText()).isEqualTo("VND");
+        assertThat(earn.path("payload").path("termMonths").asInt()).isEqualTo(12);
+        assertThat(earn.has("memberId")).isFalse();   // customer-scoped
+        assertThat(earn.has("programId")).isFalse();
+    }
+
+    @Test
     void paymentP2pRoutesToFundTransferAndPreservesPaymentType() throws Exception {
         String body = """
                 {"eventId":"it:pay:1","customerId":100990002,"occurredAt":"2026-05-29T11:00:00Z",

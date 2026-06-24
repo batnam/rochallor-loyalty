@@ -3,6 +3,7 @@ package io.github.batnam.loyalty.core.domain.port;
 import io.github.batnam.loyalty.core.domain.ledger.EntryType;
 import io.github.batnam.loyalty.core.domain.ledger.LedgerEntryView;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -15,4 +16,12 @@ public interface Ledger {
 
     /** The entry for {@code (sourceRef, entryType)} if one already exists, else empty. */
     Optional<LedgerEntryView> findExisting(String sourceRef, EntryType entryType);
+
+    /**
+     * Every {@code Earned} entry produced by one origin event: earning writes
+     * {@code sourceRef = eventId:ruleId}, so a single payment may have fired several rules. Matches
+     * {@code sourceRef = originalEventId} OR {@code sourceRef LIKE originalEventId + ":%"}. Used by the
+     * payment-reversal clawback to find what to reverse.
+     */
+    List<LedgerEntryView> findEarnedBySourceEvent(String originalEventId);
 }

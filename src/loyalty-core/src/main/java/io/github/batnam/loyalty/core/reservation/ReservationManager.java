@@ -2,6 +2,7 @@ package io.github.batnam.loyalty.core.reservation;
 
 import io.github.batnam.loyalty.core.config.CoreProperties;
 import io.github.batnam.loyalty.core.domain.member.RedeemableBalance;
+import io.github.batnam.loyalty.core.domain.member.TcsGracePolicy;
 import io.github.batnam.loyalty.core.domain.port.Reservations;
 import io.github.batnam.loyalty.core.domain.reservation.Reservation;
 import io.github.batnam.loyalty.core.error.CoreException;
@@ -12,6 +13,8 @@ import io.github.batnam.loyalty.core.ledger.LedgerService;
 import io.github.batnam.loyalty.core.member.Member;
 import io.github.batnam.loyalty.core.member.MemberRepository;
 import io.github.batnam.loyalty.core.outbox.OutboxRelay;
+import io.github.batnam.loyalty.core.program.Program;
+import io.github.batnam.loyalty.core.program.ProgramRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,18 +41,23 @@ public class ReservationManager {
 
     private final Reservations reservations;
     private final MemberRepository members;
+    private final ProgramRepository programs;
     private final LedgerService ledger;
     private final OutboxRelay outbox;
     private final int defaultTtlSeconds;
+    private final int tcsGraceDays;
     private final String ledgerTopic;
 
     public ReservationManager(Reservations reservations, MemberRepository members,
-                              LedgerService ledger, OutboxRelay outbox, CoreProperties props) {
+                              ProgramRepository programs, LedgerService ledger, OutboxRelay outbox,
+                              CoreProperties props) {
         this.reservations = reservations;
         this.members = members;
+        this.programs = programs;
         this.ledger = ledger;
         this.outbox = outbox;
         this.defaultTtlSeconds = props.reservation().defaultTtlSeconds();
+        this.tcsGraceDays = props.tcs().graceDays();
         this.ledgerTopic = props.topics().ledgerEvents();
     }
 
@@ -64,6 +72,17 @@ public class ReservationManager {
         // Member lock unchanged: read the balance under the Member's pessimistic lock.
         Member member = members.findByIdForUpdate(memberId)
                 .orElseThrow(() -> CoreException.notFound("MEMBER_NOT_FOUND", "unknown memberId=" + memberId));
+
+        // T&Cs re-acceptance gate (CONTEXT.md "T&Cs Version"): a Member behind on the current version
+        // cannot redeem — in grace (earn still allowed) and after the window both forbid redeem.
+        Program program = programs.findById(programId)
+                .orElseThrow(() -> CoreException.notFound("PROGRAM_NOT_FOUND", "unknown programId=" + programId));
+        if (TcsGracePolicy.redeemBlocked(member.getTcsVersionAccepted(), program.getCurrentTcsVersion(),
+                program.getTcsVersionEffectiveAt(), Instant.now(), tcsGraceDays)) {
+            throw CoreException.conflict("TCS_REACCEPTANCE_REQUIRED",
+                    "member must re-accept T&Cs version " + program.getCurrentTcsVersion()
+                            + " before redeeming");
+        }
 
         long heldTotal = reservations.sumActiveHeld(memberId, Instant.now());
         if (!RedeemableBalance.canRedeem(member.getRedeemableBalance(), heldTotal, points)) {

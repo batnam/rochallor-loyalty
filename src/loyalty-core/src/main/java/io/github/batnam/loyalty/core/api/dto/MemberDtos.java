@@ -3,6 +3,7 @@ package io.github.batnam.loyalty.core.api.dto;
 import io.github.batnam.loyalty.core.member.Member;
 import io.github.batnam.loyalty.core.member.MemberStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /** Membership + projection DTOs. */
@@ -12,6 +13,10 @@ public final class MemberDtos {
     }
 
     public record OptInRequest(Long programId, Long customerId, Integer tcsVersionAccepted) {
+    }
+
+    /** Body of the {@code tcs-acceptance} endpoint: the T&Cs version the Member is re-accepting. */
+    public record TcsAcceptanceRequest(int acceptedVersion) {
     }
 
     public record MemberResponse(
@@ -29,9 +34,10 @@ public final class MemberDtos {
      * {@code loyalty-earning}'s Member Resolver to turn a customer-scoped EarnEvent into a memberId
      * before calling the Ledger API. PII-free.
      */
-    public record MemberLookupResponse(Long memberId, Long programId, MemberStatus status) {
-        public static MemberLookupResponse from(Member m) {
-            return new MemberLookupResponse(m.getMemberId(), m.getProgramId(), m.getStatus());
+    public record MemberLookupResponse(Long memberId, Long programId, MemberStatus status,
+                                       BigDecimal earnMultiplier) {
+        public static MemberLookupResponse from(Member m, BigDecimal earnMultiplier) {
+            return new MemberLookupResponse(m.getMemberId(), m.getProgramId(), m.getStatus(), earnMultiplier);
         }
     }
 

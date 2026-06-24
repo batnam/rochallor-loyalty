@@ -9,6 +9,7 @@ public record BridgeTopics(
         String ingressPayment,
         String ingressReversal,
         String ingressCustomerLifecycle,
+        String ingressTermDeposit,
         String earnTranslated,
         String paymentReversed,
         String memberLifecycle,
@@ -17,6 +18,7 @@ public record BridgeTopics(
         String cardSpendDlq,
         String paymentDlq,
         String reversalDlq,
-        String lifecycleDlq
+        String lifecycleDlq,
+        String termDepositDlq
 ) {
 }

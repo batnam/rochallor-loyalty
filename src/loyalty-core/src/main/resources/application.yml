@@ -36,6 +36,7 @@ spring:
 core:
   topics:
     member-lifecycle: loyalty.member.lifecycle.v1     # consumed (from loyalty-integration-bridge)
+    payment-reversed: loyalty.payment.reversed.v1     # consumed (from loyalty-integration-bridge)
     ledger-events: loyalty.ledger.v1                  # produced (PointsEarned/Redeemed/Expired ...)
     member-events: loyalty.member.v1                  # produced (MemberClosed/TierChanged ...)
   reservation:
@@ -43,6 +44,14 @@ core:
   expiry:
     # nightly per-Program expiry sweep; cron in server TZ. ShedLock-guarded across pods.
     cron: "0 30 2 * * *"
+  tier-reeval:
+    # nightly per-Program sweep that re-tiers Members as points age out of the Qualifying window
+    # (ROLLING_12_MONTHS / CALENDAR_YEAR); LIFETIME programs are skipped. ShedLock-guarded across pods.
+    cron: "0 15 3 * * *"
+  tcs:
+    grace-days: 30                                    # T&Cs re-acceptance grace window (CONTEXT.md "T&Cs Version")
+    # nightly sweep that suspends Members whose grace window has elapsed. ShedLock-guarded.
+    cron: "0 45 2 * * *"
   outbox:
     relay-batch-size: 100
 

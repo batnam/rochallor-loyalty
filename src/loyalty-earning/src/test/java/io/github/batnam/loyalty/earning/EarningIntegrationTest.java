@@ -73,7 +73,7 @@ class EarningIntegrationTest {
     private static final long PROGRAM = 1L;
     private static final long MEMBER = 42L;
     private static final long CUSTOMER = 999L;
-    private static final MemberRef MEMBER_REF = new MemberRef(MEMBER, PROGRAM, "ACTIVE");
+    private static final MemberRef MEMBER_REF = new MemberRef(MEMBER, PROGRAM, "ACTIVE", java.math.BigDecimal.ONE);
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES =

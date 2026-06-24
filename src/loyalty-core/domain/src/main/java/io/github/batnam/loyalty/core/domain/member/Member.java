@@ -7,6 +7,7 @@ import io.github.batnam.loyalty.core.domain.event.PointsAdjusted;
 import io.github.batnam.loyalty.core.domain.event.PointsEarned;
 import io.github.batnam.loyalty.core.domain.event.PointsExpired;
 import io.github.batnam.loyalty.core.domain.event.PointsRedeemed;
+import io.github.batnam.loyalty.core.domain.event.PointsReversed;
 import io.github.batnam.loyalty.core.domain.ledger.EntryType;
 import io.github.batnam.loyalty.core.domain.ledger.NewLedgerEntry;
 import io.github.batnam.loyalty.core.domain.tier.TierLadder;
@@ -166,6 +167,41 @@ public final class Member {
         pendingEntries.add(new NewLedgerEntry(EntryType.Redeemed, 0, -points,
                 sourceRef, null, null, null, null, now));
         recordedEvents.add(new PointsRedeemed(memberId, programId, 0, -points, sourceRef, now));
+    }
+
+    /**
+     * Post a {@code Reversed} entry that claws back a prior {@code Earned} posting after a payment
+     * reversal (CONTEXT.md "Negative Redeemable Balance"). Subtracts the ORIGINAL positive deltas from
+     * both balances (which MAY go negative) and recomputes the Tier when the Qualifying Balance moved.
+     *
+     * <p>To stop the Expiry Job from later double-clawing the same points, it also consumes the
+     * Member's oldest unexpired cohorts FIFO by {@code origRedeemableDelta} — same loop shape as
+     * {@link #appendRedeemed}, tolerating cohort exhaustion. Idempotency on {@code sourceRef} (the
+     * original Earned entry's ref, with the {@code Reversed} type) is the caller's gate.
+     */
+    public void appendReversed(long origQualifyingDelta, long origRedeemableDelta, String sourceRef,
+                               Instant occurredAt, TierLadder ladder) {
+        this.redeemableBalance -= origRedeemableDelta;
+        this.qualifyingBalance -= origQualifyingDelta;
+        if (origQualifyingDelta != 0) {
+            this.currentTierCode = ladder.tierFor(this.qualifyingBalance).orElse(null);
+        }
+
+        long remaining = origRedeemableDelta;
+        for (OpenCohort c : openCohorts) {            // oldest-first
+            if (remaining <= 0) break;
+            if (c.expiresAt().isBefore(occurredAt)) continue;    // expired cohorts aren't consumable
+            long take = Math.min(remaining, c.remaining());
+            if (take <= 0) continue;
+            c.consume(take);
+            touchedCohorts.add(c);
+            remaining -= take;
+        }
+
+        pendingEntries.add(new NewLedgerEntry(EntryType.Reversed, -origQualifyingDelta, -origRedeemableDelta,
+                sourceRef, "payment reversal", null, null, null, occurredAt));
+        recordedEvents.add(new PointsReversed(memberId, programId, -origQualifyingDelta, -origRedeemableDelta,
+                sourceRef, occurredAt));
     }
 
     public long memberId() { return memberId; }

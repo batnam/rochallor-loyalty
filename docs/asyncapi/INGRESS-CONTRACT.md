@@ -49,6 +49,7 @@ The platform's `loyalty-integration-bridge` validates every inbound event agains
 | `loyalty.ingress.payment.v1` | A completed non-card payment (bill / transfer / P2P / QR / top-up) | Earn, `source` from `paymentType` |
 | `loyalty.ingress.reversal.v1` | A reversal/refund of a prior earn | Core-driven clawback |
 | `loyalty.ingress.customer_lifecycle.v1` | A customer-lifecycle change (v1: closed) | Member lifecycle |
+| `loyalty.ingress.term_deposit.v1` | A term deposit opened | Earn, `source=TERM_DEPOSIT_OPENED` |
 | `POST /webhooks/voucher` | 3rd-party voucher fulfilment outcome | Redemption saga resume |
 
 ## Versioning

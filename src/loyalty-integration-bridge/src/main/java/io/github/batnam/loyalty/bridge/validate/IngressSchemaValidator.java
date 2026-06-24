@@ -23,9 +23,11 @@ public class IngressSchemaValidator {
     private final JsonSchema paymentSchema;
     private final JsonSchema reversalSchema;
     private final JsonSchema lifecycleSchema;
+    private final JsonSchema termDepositSchema;
 
     public IngressSchemaValidator() throws IOException {
         this.cardSpendSchema = load("schema/loyalty.ingress.card_spend.v1.json");
+        this.termDepositSchema = load("schema/loyalty.ingress.term_deposit.v1.json");
         this.paymentSchema = load("schema/loyalty.ingress.payment.v1.json");
         this.reversalSchema = load("schema/loyalty.ingress.reversal.v1.json");
         this.lifecycleSchema = load("schema/loyalty.ingress.customer_lifecycle.v1.json");
@@ -53,5 +55,9 @@ public class IngressSchemaValidator {
 
     public Set<ValidationMessage> validateLifecycle(JsonNode node) {
         return lifecycleSchema.validate(node);
+    }
+
+    public Set<ValidationMessage> validateTermDeposit(JsonNode node) {
+        return termDepositSchema.validate(node);
     }
 }

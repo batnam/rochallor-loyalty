@@ -15,12 +15,13 @@ import io.github.batnam.loyalty.core.ledger.LedgerRepository;
 import io.github.batnam.loyalty.core.ledger.PointLedgerEntry;
 import io.github.batnam.loyalty.core.member.MemberRepository;
 import io.github.batnam.loyalty.core.outbox.OutboxRelay;
+import io.github.batnam.loyalty.core.program.TierAuthority;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * JPA-backed adapter for the {@link Members} port. Bridges the pure domain aggregate to
@@ -39,14 +40,16 @@ public class JpaMembers implements Members {
     private final LedgerRepository ledger;
     private final CohortRepository cohorts;
     private final OutboxRelay outbox;
+    private final TierAuthority tierAuthority;
     private final String ledgerTopic;
 
     public JpaMembers(MemberRepository members, LedgerRepository ledger, CohortRepository cohorts,
-                      OutboxRelay outbox, CoreProperties props) {
+                      OutboxRelay outbox, TierAuthority tierAuthority, CoreProperties props) {
         this.members = members;
         this.ledger = ledger;
         this.cohorts = cohorts;
         this.outbox = outbox;
+        this.tierAuthority = tierAuthority;
         this.ledgerTopic = props.topics().ledgerEvents();
     }
 
@@ -115,10 +118,11 @@ public class JpaMembers implements Members {
                     .consume(c.consumedThisTx());
         }
 
-        // Tier projection — single writer of current_tier_code.
-        if (!Objects.equals(aggregate.currentTierCode(), entity.getCurrentTierCode())) {
-            entity.setCurrentTierCode(aggregate.currentTierCode());
-        }
+        // Tier projection — single writer of current_tier_code. The windowed Qualifying Balance is
+        // authoritative (CONTEXT.md "Qualifying Metric"): the SUM query issued here triggers a
+        // Hibernate autoflush, so the entries just ledger.save()d above are included. The aggregate's
+        // in-memory tier is left untouched (it serves only the expiry-override lookup at earn time).
+        tierAuthority.recompute(entity, Instant.now());
         // The entity is managed; dirty-checking flushes balance/tier/cohorts at commit.
     }
 }

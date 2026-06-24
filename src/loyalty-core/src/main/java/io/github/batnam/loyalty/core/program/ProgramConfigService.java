@@ -2,6 +2,7 @@ package io.github.batnam.loyalty.core.program;
 
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,5 +56,21 @@ public class ProgramConfigService {
             }
         }
         return program.getExpiryMonths();
+    }
+
+    /**
+     * Earn multiplier for points accrued by a Member currently in {@code tierCode} (CONTEXT.md
+     * "Tier" earn multiplier). Defaults to 1.0 when the Member has no tier yet or the tier is not
+     * found, so accrual is unscaled until a deployment configures real multipliers.
+     */
+    public BigDecimal earnMultiplierFor(Long programId, String tierCode) {
+        if (tierCode != null) {
+            for (Tier t : tierLadder(programId)) {
+                if (t.getTierCode().equals(tierCode)) {
+                    return t.getEarnMultiplier();
+                }
+            }
+        }
+        return BigDecimal.ONE;
     }
 }

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:loyalty:ingress:term_deposit:v1",
+  "title": "Term Deposit Opened (ingress)",
+  "description": "Loyalty Integration Contract — Layer 1, customer-scoped. Tolerant reader: additionalProperties allowed.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["eventId", "customerId", "occurredAt", "amount", "currency", "termMonths", "schemaVersion"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bank-stable, globally-unique idempotency key."
+    },
+    "customerId": {
+      "type": "integer",
+      "description": "Bank CIF / customer identifier."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Deposit opening timestamp."
+    },
+    "amount": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Deposit principal in `currency`."
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["USD", "VND"]
+    },
+    "termMonths": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "description": "Deposit term length in months."
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    }
+  }
+}

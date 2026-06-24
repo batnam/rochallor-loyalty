@@ -13,6 +13,10 @@ import io.github.batnam.loyalty.earning.member.MemberRef;
 import io.github.batnam.loyalty.earning.outbox.OutboxRelay;
 import io.github.batnam.loyalty.earning.rule.ActiveRule;
 import io.github.batnam.loyalty.earning.rule.Rules;
+import io.github.batnam.loyalty.earning.rule.SourceCapConfig;
+import io.github.batnam.loyalty.earning.rule.SourceCaps;
+
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,9 +39,9 @@ import java.util.List;
  * <p>The Ledger REST call is the one non-transactional step; it is idempotent on core's side
  * ({@code (sourceRef, entryType)}), so a rollback-then-redeliver never double-awards.
  *
- * <p><b>v1 simplification:</b> {@link MemberContext} is neutral (multiplier 1.0) — the tier-benefit
- * multiplier for {@code tierMultiplier} rules is owned by the (not-yet-built) Program config; wiring
- * it through the member lookup is deferred. Rules default {@code tierMultiplier:false}.
+ * <p>{@link MemberContext} carries the resolved member's tier-benefit earn multiplier (from core's
+ * {@code /members/lookup}); it only bites on rules with {@code tierMultiplier:true} and is neutral
+ * (1.0) otherwise. Rules default {@code tierMultiplier:false}.
  */
 @Service
 public class RuleEngine {
@@ -46,16 +50,19 @@ public class RuleEngine {
 
     private final IdempotencyRepository idempotency;
     private final Rules rules;
+    private final SourceCaps sourceCaps;
     private final DslInterpreter interpreter;
     private final CapService caps;
     private final LedgerClient ledger;
     private final OutboxRelay outbox;
     private final EarningProperties props;
 
-    public RuleEngine(IdempotencyRepository idempotency, Rules rules, DslInterpreter interpreter,
-                      CapService caps, LedgerClient ledger, OutboxRelay outbox, EarningProperties props) {
+    public RuleEngine(IdempotencyRepository idempotency, Rules rules, SourceCaps sourceCaps,
+                      DslInterpreter interpreter, CapService caps, LedgerClient ledger,
+                      OutboxRelay outbox, EarningProperties props) {
         this.idempotency = idempotency;
         this.rules = rules;
+        this.sourceCaps = sourceCaps;
         this.interpreter = interpreter;
         this.caps = caps;
         this.ledger = ledger;
@@ -73,6 +80,7 @@ public class RuleEngine {
         Instant now = event.occurredAt();
         long programId = member.programId();
         long memberId = member.memberId();
+        MemberContext ctx = new MemberContext(null, member.earnMultiplier().doubleValue());
 
         List<Long> entryIds = new ArrayList<>();
         long totalQualifying = 0;
@@ -82,8 +90,10 @@ public class RuleEngine {
         if (active.isEmpty()) {
             log.debug("no active rules for source '{}' on eventId={}", event.source(), event.eventId());
         }
+        // OPTIONAL Source-Aggregate Cap (CONTEXT.md): one lookup per event, shared by every rule fire.
+        Optional<SourceCapConfig> sourceCap = sourceCaps.findForSource(programId, event.source());
         for (ActiveRule rule : active) {
-            EarnOutcome out = interpreter.evaluate(rule.dsl(), event.payload(), MemberContext.none());
+            EarnOutcome out = interpreter.evaluate(rule.dsl(), event.payload(), ctx);
             if (out.isZero()) {
                 continue;
             }
@@ -92,14 +102,32 @@ public class RuleEngine {
                 log.debug("cap exhausted: rule={} member={} — dropping fire", rule.ruleId(), memberId);
                 continue;
             }
+            long qualifying = out.qualifyingDelta();
+            long redeemable = out.redeemableDelta();
+            if (sourceCap.isPresent()) {
+                // "More restrictive applies": bound this fire by what the source cap can still absorb.
+                long granted = caps.tryConsumeSourceCap(programId, memberId, sourceCap.get(), capPoints, now);
+                if (granted < capPoints) {
+                    if (granted <= 0) {
+                        // Source cap exhausted: skip the fire and re-credit its rule-cap windows.
+                        caps.credit(programId, rule.ruleId(), memberId, rule.dsl().caps(), capPoints, now);
+                        log.debug("source cap exhausted: source={} member={} rule={} — dropping fire",
+                                event.source(), memberId, rule.ruleId());
+                        continue;
+                    }
+                    // Partial: scale each balance down to the granted total (floor).
+                    qualifying = qualifying * granted / capPoints;
+                    redeemable = redeemable * granted / capPoints;
+                }
+            }
             String sourceRef = event.eventId() + ":" + rule.ruleId();
             Long entryId = ledger.appendEarned(new LedgerEarnRequest(
                     memberId, programId, event.source(), sourceRef,
-                    out.qualifyingDelta(), out.redeemableDelta(),
+                    qualifying, redeemable,
                     currency(event), now), sourceRef);
             entryIds.add(entryId);
-            totalQualifying += out.qualifyingDelta();
-            totalRedeemable += out.redeemableDelta();
+            totalQualifying += qualifying;
+            totalRedeemable += redeemable;
         }
 
         if (!entryIds.isEmpty()) {

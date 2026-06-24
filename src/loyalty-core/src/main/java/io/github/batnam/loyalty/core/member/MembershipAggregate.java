@@ -4,6 +4,8 @@ import io.github.batnam.loyalty.core.config.CoreProperties;
 import io.github.batnam.loyalty.core.error.CoreException;
 import io.github.batnam.loyalty.core.event.MemberEvent;
 import io.github.batnam.loyalty.core.outbox.OutboxRelay;
+import io.github.batnam.loyalty.core.program.Program;
+import io.github.batnam.loyalty.core.program.ProgramRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,11 +24,14 @@ public class MembershipAggregate {
     private static final Logger log = LoggerFactory.getLogger(MembershipAggregate.class);
 
     private final MemberRepository members;
+    private final ProgramRepository programs;
     private final OutboxRelay outbox;
     private final String memberTopic;
 
-    public MembershipAggregate(MemberRepository members, OutboxRelay outbox, CoreProperties props) {
+    public MembershipAggregate(MemberRepository members, ProgramRepository programs,
+                               OutboxRelay outbox, CoreProperties props) {
         this.members = members;
+        this.programs = programs;
         this.outbox = outbox;
         this.memberTopic = props.topics().memberEvents();
     }
@@ -68,6 +73,43 @@ public class MembershipAggregate {
             publish("MemberClosed", member, reason);
             log.debug("closed memberId={} customerId={} reason={}", member.getMemberId(), customerId, reason);
         }
+    }
+
+    /**
+     * Suspend an ACTIVE Member whose T&Cs grace window has elapsed (CONTEXT.md "T&Cs Version").
+     * Called by the {@code TcsGraceJob}. Idempotent — a Member already SUSPENDED_TCS (or no longer
+     * ACTIVE) is left untouched.
+     */
+    @Transactional
+    public void suspendForTcs(long memberId) {
+        Member member = require(memberId);
+        if (member.getStatus() != MemberStatus.ACTIVE) return;
+        member.setStatus(MemberStatus.SUSPENDED_TCS);
+        members.save(member);
+        publish("MemberSuspendedTcs", member, "tcs-grace-expired");
+        log.info("suspended memberId={} — T&Cs grace window elapsed", memberId);
+    }
+
+    /**
+     * Record a Member's re-acceptance of the current T&Cs version (CONTEXT.md "T&Cs Version"). Sets
+     * {@code tcsVersionAccepted}; if the Member was SUSPENDED_TCS and the accepted version now meets
+     * the Program's current version, lifts the suspension back to ACTIVE.
+     */
+    @Transactional
+    public Member acceptTcs(long memberId, int acceptedVersion) {
+        Member member = require(memberId);
+        member.setTcsVersionAccepted(acceptedVersion);
+        Program program = programs.findById(member.getProgramId())
+                .orElseThrow(() -> CoreException.notFound("PROGRAM_NOT_FOUND",
+                        "programId=" + member.getProgramId()));
+        boolean reactivated = member.getStatus() == MemberStatus.SUSPENDED_TCS
+                && acceptedVersion >= program.getCurrentTcsVersion();
+        if (reactivated) {
+            member.setStatus(MemberStatus.ACTIVE);
+        }
+        members.save(member);
+        publish(reactivated ? "MemberReactivated" : "MemberTcsAccepted", member, "tcs-accepted-v" + acceptedVersion);
+        return member;
     }
 
     private Member require(long memberId) {

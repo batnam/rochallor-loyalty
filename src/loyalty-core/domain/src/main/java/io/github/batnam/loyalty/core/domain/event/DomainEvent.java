@@ -12,7 +12,7 @@ import java.time.Instant;
  * persisted {@code entryId} (which the domain does not know) onto {@link #eventName()}.
  */
 public sealed interface DomainEvent
-        permits PointsEarned, PointsRedeemed, PointsExpired, PointsAdjusted {
+        permits PointsEarned, PointsRedeemed, PointsExpired, PointsAdjusted, PointsReversed {
 
     /** The canonical event name, e.g. {@code PointsEarned} → topic event {@code loyalty.ledger.PointsEarned}. */
     String eventName();

@@ -16,7 +16,7 @@ import java.time.Instant;
  *
  * <p>Single-writer-per-column (P5): {@code status} is written only by {@code MembershipAggregate};
  * {@code redeemableBalance}/{@code qualifyingBalance} only by {@code BalanceProjection};
- * {@code currentTierCode} only by {@code TierProjection}. They share this one managed entity inside
+ * {@code currentTierCode} only by {@code TierAuthority} (the windowed Tier projection path). They share this one managed entity inside
  * a single transaction. The setters below are package-private so only those components mutate them.
  */
 @Entity
@@ -92,7 +92,7 @@ public class Member {
         touch();
     }
 
-    /** Written only by {@code TierProjection}. */
+    /** Written only by {@code TierAuthority} (the windowed Tier projection path). */
     public void setCurrentTierCode(String currentTierCode) { this.currentTierCode = currentTierCode; touch(); }
 
     public void setTcsVersionAccepted(Integer v) { this.tcsVersionAccepted = v; touch(); }

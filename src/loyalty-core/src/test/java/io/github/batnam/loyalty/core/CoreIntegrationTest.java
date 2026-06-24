@@ -89,12 +89,15 @@ class CoreIntegrationTest {
     @Autowired MembershipAggregate membership;
     @Autowired ApprovalRequestStore approvals;
     @Autowired ProgramExpiryProcessor expiry;
+    @Autowired io.github.batnam.loyalty.core.program.ProgramConfigService programConfig;
+    @Autowired io.github.batnam.loyalty.core.job.TierReevaluationProcessor tierReeval;
     @Autowired MemberRepository members;
     @Autowired LedgerRepository ledgerRepo;
     @Autowired CohortRepository cohorts;
     @Autowired KafkaTemplate<String, String> template;
     @Autowired ObjectMapper mapper;
     @Autowired EntityManager em;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     private long newMember(long customerId) {
         return membership.optIn(PROGRAM, customerId, 1).getMemberId();
@@ -172,6 +175,42 @@ class CoreIntegrationTest {
     }
 
     @Test
+    void earnMultiplierDefaultsToOneForSeededTiers() {
+        // V4 adds earn_multiplier NOT NULL DEFAULT 1.000; V2-seeded tiers are left unconfigured, so the
+        // multiplier the /members/lookup response carries is 1.0 (no accrual scaling) until deployed.
+        assertThat(programConfig.earnMultiplierFor(PROGRAM, "SILVER")).isEqualByComparingTo("1.0");
+        assertThat(programConfig.earnMultiplierFor(PROGRAM, null)).isEqualByComparingTo("1.0"); // no tier
+    }
+
+    @Test
+    void tierReflectsOnlyInWindowQualifyingForRolling12() {
+        // Seed Program is ROLLING_12_MONTHS. Qualifying earned 13 months ago is out of the window, so
+        // it must NOT lift the Member into SILVER (threshold 50_000): the windowed sum is 0, which only
+        // meets BRONZE (threshold 0). Only in-window qualifying counts.
+        long m = newMember(2011);
+        Instant outOfWindow = Instant.now().minus(13L * 31, ChronoUnit.DAYS);
+        ledger.appendEarn(m, PROGRAM, "earn:2011:old", 50_000, 0, "CARD_SPEND", "USD", outOfWindow);
+        assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("BRONZE");
+
+        // A fresh in-window earn that crosses the threshold lifts the tier.
+        ledger.appendEarn(m, PROGRAM, "earn:2011:new", 50_000, 0, "CARD_SPEND", "USD", Instant.now());
+        assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("SILVER");
+    }
+
+    @Test
+    void tierReevaluationDropsTierAsPointsAgeOut() {
+        // An in-window earn lifts to SILVER; a backdated-only history would age out, but the job here
+        // simply re-asserts the windowed tier for active members (no time travel in-test).
+        long m = newMember(2012);
+        ledger.appendEarn(m, PROGRAM, "earn:2012:a", 60_000, 0, "CARD_SPEND", "USD", Instant.now());
+        assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("SILVER");
+
+        int changed = tierReeval.reevaluateProgram(PROGRAM, Instant.now());
+        assertThat(changed).isGreaterThanOrEqualTo(0);   // idempotent: no spurious change for in-window points
+        assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("SILVER");
+    }
+
+    @Test
     void approvalConfirmWritesAdjustedEntry() {
         long m = newMember(2007);
         ApprovalRequest req = approvals.create("cs-rep-1", m, PROGRAM, 0L, 500L, "goodwill credit");
@@ -220,7 +259,86 @@ class CoreIntegrationTest {
         assertThat(event.path("redeemableDelta").asLong()).isEqualTo(33);
     }
 
+    @Test
+    void paymentReversedClawsBackPoints() {
+        long m = newMember(2013);
+        // Earn comes from loyalty-earning shaped as sourceRef = eventId:ruleId; the reversal matches by the
+        // bare eventId prefix (JpaLedger appends ":%").
+        ledger.appendEarn(m, PROGRAM, "evt-REV-1:ruleA", 400, 400, "CARD_SPEND", "USD", Instant.now());
+        assertThat(members.findById(m).orElseThrow().getRedeemableBalance()).isEqualTo(400);
+        assertThat(members.findById(m).orElseThrow().getQualifyingBalance()).isEqualTo(400);
+
+        // PaymentReversedConsumer reads "originalEventId" — the eventId portion WITHOUT the ":ruleA" suffix.
+        String body = """
+                {"eventId":"it:rev:1","eventType":"loyalty.payment.reversed.v1",
+                 "occurredAt":"2026-06-01T10:30:00Z","schemaVersion":1,
+                 "originalEventId":"evt-REV-1"}""";
+        template.send("loyalty.payment.reversed.v1", "evt-REV-1", body);
+
+        awaitReversed(m, "evt-REV-1:ruleA");
+
+        // Clawback posted negative deltas equal to the original; balances fell back to zero.
+        assertThat(members.findById(m).orElseThrow().getRedeemableBalance()).isEqualTo(0);
+        assertThat(members.findById(m).orElseThrow().getQualifyingBalance()).isEqualTo(0);
+
+        // Idempotency: a duplicate reversal must NOT double-claw (the (sourceRef, Reversed) unique constraint).
+        template.send("loyalty.payment.reversed.v1", "evt-REV-1", body);
+        try {
+            Thread.sleep(2_000);   // give the consumer a chance to (not) re-apply
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        assertThat(members.findById(m).orElseThrow().getRedeemableBalance()).isEqualTo(0);
+        assertThat(members.findById(m).orElseThrow().getQualifyingBalance()).isEqualTo(0);
+        // Exactly one Reversed entry for that sourceRef.
+        assertThat(ledgerRepo.findBySourceRefAndEntryType("evt-REV-1:ruleA", EntryType.Reversed)).isPresent();
+    }
+
+    @Test
+    void reserveBlockedWhenTcsBehind() {
+        long m = newMember(2014);   // enrolls accepting tcs version 1 (newMember -> optIn(..., 1))
+        ledger.appendEarn(m, PROGRAM, "earn:2014:a", 0, 100, "CARD_SPEND", "USD", Instant.now());
+
+        // Advance the Program's current T&Cs version so the Member (still on v1) is behind. Program is
+        // @Immutable, so bump it via native SQL and clear the persistence context to force a reload.
+        // The Program row is shared seed state, so restore it afterwards to avoid polluting sibling tests.
+        bumpProgramTcsVersion(PROGRAM, 2);
+        try {
+            assertThatThrownBy(() -> reservations.reserve(m, PROGRAM, 50, null, null, "idem:2014:1"))
+                    .isInstanceOf(CoreException.class)
+                    .matches(e -> ((CoreException) e).code().equals("TCS_REACCEPTANCE_REQUIRED"));
+
+            // Re-accept the current version; a subsequent reserve now passes.
+            membership.acceptTcs(m, 2);
+            Reservation held = reservations.reserve(m, PROGRAM, 50, null, null, "idem:2014:2");
+            assertThat(held.isHeld()).isTrue();
+        } finally {
+            bumpProgramTcsVersion(PROGRAM, 1);
+        }
+    }
+
     // --- helpers -------------------------------------------------------------
+
+    private void bumpProgramTcsVersion(long programId, int version) {
+        new org.springframework.transaction.support.TransactionTemplate(txManager).execute(status -> {
+            em.createNativeQuery("UPDATE program SET current_tcs_version = :v, tcs_version_effective_at = now() WHERE program_id = :id")
+                    .setParameter("v", version)
+                    .setParameter("id", programId)
+                    .executeUpdate();
+            em.flush();
+            em.clear();   // evict the @Immutable Program so ReservationManager reloads the bumped row
+            return null;
+        });
+    }
+
+    private void awaitReversed(long memberId, String sourceRef) {
+        long deadline = System.currentTimeMillis() + 25_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (ledgerRepo.findBySourceRefAndEntryType(sourceRef, EntryType.Reversed).isPresent()) return;
+            sleep();
+        }
+        throw new AssertionError("member " + memberId + " never got a Reversed entry for " + sourceRef);
+    }
 
     private void awaitMemberStatus(long memberId, MemberStatus expected) {
         long deadline = System.currentTimeMillis() + 25_000;

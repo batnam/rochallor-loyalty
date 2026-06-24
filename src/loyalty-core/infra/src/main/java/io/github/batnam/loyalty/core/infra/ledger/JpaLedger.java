@@ -6,6 +6,7 @@ import io.github.batnam.loyalty.core.ledger.LedgerRepository;
 import io.github.batnam.loyalty.core.ledger.PointLedgerEntry;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -27,6 +28,13 @@ public class JpaLedger implements Ledger {
         io.github.batnam.loyalty.core.ledger.EntryType jpaType =
                 io.github.batnam.loyalty.core.ledger.EntryType.valueOf(entryType.name());
         return ledger.findBySourceRefAndEntryType(sourceRef, jpaType).map(JpaLedger::toView);
+    }
+
+    @Override
+    public List<LedgerEntryView> findEarnedBySourceEvent(String originalEventId) {
+        return ledger.findEarnedBySourceEvent(originalEventId, originalEventId + ":%").stream()
+                .map(JpaLedger::toView)
+                .toList();
     }
 
     private static LedgerEntryView toView(PointLedgerEntry e) {

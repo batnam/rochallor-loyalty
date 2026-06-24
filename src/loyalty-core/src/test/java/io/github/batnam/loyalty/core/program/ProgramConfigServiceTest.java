@@ -2,6 +2,7 @@ package io.github.batnam.loyalty.core.program;
 
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -76,5 +77,22 @@ class ProgramConfigServiceTest {
 
         assertThat(service.effectiveExpiryMonths(1L, "BRONZE")).isEqualTo(24);   // override null → default
         assertThat(service.effectiveExpiryMonths(1L, null)).isEqualTo(24);       // no tier → default
+    }
+
+    @Test
+    void earnMultiplierForReturnsTheTiersConfiguredMultiplier() {
+        Tier silver = tier("SILVER", 50_000, 36);
+        when(silver.getEarnMultiplier()).thenReturn(new BigDecimal("1.500"));
+        when(tiers.findByProgramIdOrderByOrdinalAsc(anyLong())).thenReturn(List.of(silver));
+
+        assertThat(service.earnMultiplierFor(1L, "SILVER")).isEqualByComparingTo("1.500");
+    }
+
+    @Test
+    void earnMultiplierForDefaultsToOneWhenNoTierOrTierNotFound() {
+        seedLadder();   // ladder has no earn_multiplier stubbed; lookups below never reach a match
+
+        assertThat(service.earnMultiplierFor(1L, null)).isEqualByComparingTo("1.0");      // no current tier
+        assertThat(service.earnMultiplierFor(1L, "PLATINUM")).isEqualByComparingTo("1.0"); // unknown tier
     }
 }

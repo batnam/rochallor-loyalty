@@ -31,6 +31,18 @@ public final class LedgerDtos {
     public record ReleaseRequest(String reason) {
     }
 
+    /** Body of {@code POST /ledger/earn} (loyalty-core.yaml {@code EarnRequest}). A TIER_BOOST
+     *  qualifying-only grant sets {@code qualifyingDelta>0}, {@code redeemableDelta=0}. */
+    public record EarnRequest(Long memberId, Long programId, String earnSourceCode, String sourceRef,
+                              Long qualifyingDelta, Long redeemableDelta, String currency, Instant occurredAt) {
+    }
+
+    /** Response of {@code POST /ledger/earn} ({@code LedgerEntry}); {@code entryId} is the appended entry. */
+    public record LedgerEntryResponse(Long entryId, Long memberId, Long programId, String entryType,
+                                      long qualifyingDelta, long redeemableDelta, String sourceRef,
+                                      Instant createdAt) {
+    }
+
     /**
      * Response of {@code GET /members/{id}/programs/{pid}/projection} — the read-side balance + tier the
      * Eligibility Engine gates against. v1 core exposes balance + tierCode + status only (no segment /

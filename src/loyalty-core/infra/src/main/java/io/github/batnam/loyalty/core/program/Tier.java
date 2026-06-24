@@ -6,6 +6,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.Immutable;
 
+import java.math.BigDecimal;
+
 /**
  * One rung of a Program's Tier Ladder (CONTEXT.md "Tier", "Tier Ladder", "Tier Expiry Override").
  * Read-only config in core (seeded; authoritative owner is loyalty-earning).
@@ -34,6 +36,9 @@ public class Tier {
     @Column(name = "expiry_months_override")
     private Integer expiryMonthsOverride;
 
+    @Column(name = "earn_multiplier", nullable = false)
+    private BigDecimal earnMultiplier;
+
     protected Tier() {
     }
 
@@ -43,4 +48,5 @@ public class Tier {
     public int getOrdinal() { return ordinal; }
     public long getQualifyingThreshold() { return qualifyingThreshold; }
     public Integer getExpiryMonthsOverride() { return expiryMonthsOverride; }
+    public BigDecimal getEarnMultiplier() { return earnMultiplier; }
 }

@@ -5,6 +5,7 @@ import io.github.batnam.loyalty.core.api.dto.MemberDtos.MemberProjectionResponse
 import io.github.batnam.loyalty.core.error.CoreException;
 import io.github.batnam.loyalty.core.member.Member;
 import io.github.batnam.loyalty.core.member.MemberRepository;
+import io.github.batnam.loyalty.core.program.ProgramConfigService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectionController {
 
     private final MemberRepository members;
+    private final ProgramConfigService programConfig;
 
-    public ProjectionController(MemberRepository members) {
+    public ProjectionController(MemberRepository members, ProgramConfigService programConfig) {
         this.members = members;
+        this.programConfig = programConfig;
     }
 
     @GetMapping("/members/{memberId}/programs/{programId}/projection")
@@ -38,6 +41,7 @@ public class ProjectionController {
         Member m = members.findByProgramIdAndCustomerId(programId, customerId)
                 .orElseThrow(() -> CoreException.notFound("MEMBER_NOT_FOUND",
                         "no member for program " + programId + " customer " + customerId));
-        return MemberLookupResponse.from(m);
+        return MemberLookupResponse.from(m,
+                programConfig.earnMultiplierFor(m.getProgramId(), m.getCurrentTierCode()));
     }
 }

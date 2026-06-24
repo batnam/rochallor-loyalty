@@ -6,6 +6,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.Immutable;
 
+import java.time.Instant;
+
 /**
  * Program config (CONTEXT.md "Program", "Qualifying Metric", "Expiry"). Read-only in core.
  *
@@ -33,6 +35,9 @@ public class Program {
     @Column(name = "current_tcs_version", nullable = false)
     private int currentTcsVersion;
 
+    @Column(name = "tcs_version_effective_at", nullable = false)
+    private Instant tcsVersionEffectiveAt;
+
     protected Program() {
     }
 
@@ -41,4 +46,5 @@ public class Program {
     public String getQualifyingMetric() { return qualifyingMetric; }
     public int getExpiryMonths() { return expiryMonths; }
     public int getCurrentTcsVersion() { return currentTcsVersion; }
+    public Instant getTcsVersionEffectiveAt() { return tcsVersionEffectiveAt; }
 }

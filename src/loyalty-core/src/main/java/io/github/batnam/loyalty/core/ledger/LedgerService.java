@@ -88,6 +88,25 @@ public class LedgerService {
         return new AppendResult(requireView(sourceRef, EntryType.Expired), false);
     }
 
+    /**
+     * Append a {@code Reversed} entry that claws back a prior {@code Earned} posting after a payment
+     * reversal. Reuses the SAME {@code sourceRef} as the original Earned entry — {@code (sourceRef,
+     * Reversed)} is unique, so replays are a silent no-op. {@code qualifyingDelta}/{@code redeemableDelta}
+     * are the ORIGINAL positive deltas; the aggregate subtracts them (balance may go negative).
+     */
+    @Transactional
+    public AppendResult appendReversed(long memberId, long programId, long qualifyingDelta,
+                                       long redeemableDelta, String sourceRef) {
+        Optional<LedgerEntryView> existing = ledgerPort.findExisting(sourceRef, d(EntryType.Reversed));
+        if (existing.isPresent()) {
+            return new AppendResult(existing.get(), true);
+        }
+        Member member = memberPort.loadForUpdate(memberId);
+        member.appendReversed(qualifyingDelta, redeemableDelta, sourceRef, Instant.now(), tierLadder(programId));
+        memberPort.save(member);
+        return new AppendResult(requireView(sourceRef, EntryType.Reversed), false);
+    }
+
     /** Append an {@code Adjusted} entry from a confirmed approval request (Maker-Checker via BEP). */
     @Transactional
     public AppendResult appendAdjusted(long memberId, long programId, long qualifyingDelta,

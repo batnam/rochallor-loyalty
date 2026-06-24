@@ -36,6 +36,30 @@ public interface CapRepository extends JpaRepository<CapCounter, CapCounter.Key>
                      @Param("memberId") long memberId, @Param("windowKey") String windowKey,
                      @Param("n") long n);
 
+    /**
+     * Atomic <b>partial</b> decrement for the Source-Aggregate Cap: consumes {@code LEAST(remaining, :n)}
+     * and returns the amount actually consumed (0..n). Single statement — no SELECT-then-UPDATE race.
+     * Used to honour the "more restrictive applies" rule where a source cap may absorb only part of a
+     * rule's award. The window row must already exist (created via {@link #ensureCounter}).
+     */
+    @Modifying
+    @Query(value = """
+            WITH before AS (
+                SELECT remaining AS old FROM cap_counter
+                WHERE program_id = :programId AND rule_id = :ruleId AND member_id = :memberId
+                  AND window_key = :windowKey
+                FOR UPDATE
+            )
+            UPDATE cap_counter c SET remaining = c.remaining - LEAST(c.remaining, :n)
+            FROM before b
+            WHERE c.program_id = :programId AND c.rule_id = :ruleId AND c.member_id = :memberId
+              AND c.window_key = :windowKey
+            RETURNING LEAST(b.old, :n)
+            """, nativeQuery = true)
+    long tryConsumePartial(@Param("programId") long programId, @Param("ruleId") long ruleId,
+                           @Param("memberId") long memberId, @Param("windowKey") String windowKey,
+                           @Param("n") long n);
+
     /** Compensating re-credit when a later window in the same fire is exhausted. */
     @Modifying
     @Query(value = """

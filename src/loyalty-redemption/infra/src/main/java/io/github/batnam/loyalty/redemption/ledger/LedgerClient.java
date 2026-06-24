@@ -2,6 +2,8 @@ package io.github.batnam.loyalty.redemption.ledger;
 
 import io.github.batnam.loyalty.redemption.config.RedemptionProperties;
 import io.github.batnam.loyalty.redemption.ledger.LedgerDtos.CommitRequest;
+import io.github.batnam.loyalty.redemption.ledger.LedgerDtos.EarnRequest;
+import io.github.batnam.loyalty.redemption.ledger.LedgerDtos.LedgerEntryResponse;
 import io.github.batnam.loyalty.redemption.ledger.LedgerDtos.MemberProjectionResponse;
 import io.github.batnam.loyalty.redemption.ledger.LedgerDtos.ReleaseRequest;
 import io.github.batnam.loyalty.redemption.ledger.LedgerDtos.ReservationResponse;
@@ -66,6 +68,27 @@ public class LedgerClient {
             throw new IllegalStateException("loyalty-core projection returned no body for member " + memberId);
         }
         return resp;
+    }
+
+    /**
+     * Grant qualifying-only points (tier progress) for a TIER_BOOST reward via core's earning-owned
+     * {@code POST /ledger/earn} seam: {@code qualifyingDelta>0}, {@code redeemableDelta=0},
+     * {@code earnSourceCode=TIER_BOOST}. Idempotent on {@code (sourceRef, Earned)} — the {@code sourceRef}
+     * is also sent as the {@code Idempotency-Key} so a Saga replay re-binds the original grant (core
+     * returns 200) instead of double-granting. Returns the appended ledger entry id.
+     */
+    public Long grantQualifying(long memberId, long programId, long qualifyingDelta, String sourceRef) {
+        LedgerEntryResponse resp = core.post()
+                .uri("/ledger/earn")
+                .header("Idempotency-Key", sourceRef)
+                .body(new EarnRequest(memberId, programId, "TIER_BOOST", sourceRef,
+                        qualifyingDelta, 0L, null, null))
+                .retrieve()
+                .body(LedgerEntryResponse.class);
+        if (resp == null || resp.entryId() == null) {
+            throw new IllegalStateException("loyalty-core /ledger/earn returned no entry id for member " + memberId);
+        }
+        return resp.entryId();
     }
 
     /** Compensation — release the held reservation; balance is restored, no Ledger entry is written. */
