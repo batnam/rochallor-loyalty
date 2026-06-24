@@ -115,6 +115,20 @@ channels:
       message:
         $ref: '#/components/messages/CustomerLifecycle'
 
+  loyalty.ingress.term_deposit.v1:
+    description: |
+      A **term deposit opened** by the customer. One event per opened deposit — the bank-side
+      adapter emits at opening (the deposit principal is the earnable amount). The Bridge stamps
+      canonical `source = TERM_DEPOSIT_OPENED` (constant for this channel — no discriminator) and
+      re-emits `loyalty.earn.translated.v1`.
+    parameters:
+      customerId: { $ref: '#/components/parameters/customerId' }
+    publish:
+      operationId: onTermDepositOpened
+      summary: The Host Bank adapter produces; loyalty-integration-bridge consumes and validates.
+      message:
+        $ref: '#/components/messages/TermDeposit'
+
 components:
   securitySchemes:
     mtls:
@@ -218,6 +232,26 @@ components:
             reason: "CUSTOMER_REQUEST"
             schemaVersion: 1
 
+    TermDeposit:
+      name: TermDeposit
+      messageId: TermDeposit
+      title: Term Deposit Opened (ingress)
+      summary: A term deposit the bank-side adapter reports to Loyalty at opening.
+      headers: { $ref: '#/components/schemas/IngressHeaders' }
+      payload:
+        $ref: '#/components/schemas/TermDepositPayload'
+      examples:
+        - name: usd-12m
+          summary: A USD 12-month term deposit.
+          payload:
+            eventId: "hbp:termdeposit:TD20260529000789"
+            customerId: 100990001
+            occurredAt: "2026-05-29T10:30:00Z"
+            amount: 50000.00
+            currency: "USD"
+            termMonths: 12
+            schemaVersion: 1
+
   schemas:
     IngressHeaders:
       type: object
@@ -276,6 +310,45 @@ components:
           nullable: true
           description: Acquirer/merchant identifier, if known.
           example: "M00012345"
+        schemaVersion:
+          type: integer
+          description: In-payload schema revision. 1 at launch.
+          example: 1
+
+    TermDepositPayload:
+      type: object
+      required: [eventId, customerId, occurredAt, amount, currency, termMonths, schemaVersion]
+      properties:
+        eventId:
+          type: string
+          description: |
+            Bank-stable, globally-unique idempotency key for this opened deposit. Carried through to
+            the canonical event's `eventId`; downstream dedups on it.
+          example: "hbp:termdeposit:TD20260529000789"
+        customerId:
+          type: integer
+          format: int64
+          description: Bank CIF / customer identifier.
+          example: 100990001
+        occurredAt:
+          type: string
+          format: date-time
+          description: Deposit opening timestamp (the earn occurs at opening).
+          example: "2026-05-29T10:30:00Z"
+        amount:
+          type: number
+          format: double
+          description: Deposit principal in `currency`. No FX normalisation.
+          example: 50000.00
+        currency:
+          type: string
+          description: Deposit currency. USD and VND are both first-class.
+          enum: [USD, VND]
+          example: "USD"
+        termMonths:
+          type: integer
+          description: Deposit term length in months.
+          example: 12
         schemaVersion:
           type: integer
           description: In-payload schema revision. 1 at launch.
