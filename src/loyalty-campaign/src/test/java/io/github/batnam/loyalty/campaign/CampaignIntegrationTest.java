@@ -7,6 +7,9 @@ import io.github.batnam.loyalty.campaign.drawing.DrawingStatus;
 import io.github.batnam.loyalty.campaign.drawing.DrawingRepository;
 import io.github.batnam.loyalty.campaign.drawing.WinnerRecordRepository;
 import io.github.batnam.loyalty.campaign.drawing.WinnerSelectionService;
+import io.github.batnam.loyalty.campaign.config.CampaignProperties;
+import io.github.batnam.loyalty.campaign.select.SelectionStrategy;
+import io.github.batnam.loyalty.campaign.select.WinnerSelection;
 import io.github.batnam.loyalty.campaign.outbox.OutboxEntry;
 import io.github.batnam.loyalty.campaign.outbox.OutboxRepository;
 import org.junit.jupiter.api.BeforeAll;
@@ -78,6 +81,7 @@ class CampaignIntegrationTest {
     @Autowired ObjectMapper mapper;
     @Autowired Environment env;
     @Autowired WinnerSelectionService winnerSelection;
+    @Autowired CampaignProperties props;
     @Autowired DrawingScheduler scheduler;
     @Autowired DrawingRepository drawings;
     @Autowired WinnerRecordRepository winnerRecords;
@@ -152,6 +156,12 @@ class CampaignIntegrationTest {
                 Map.of("memberId", memberId, "sagaId", 99, "idempotencyKey", idempotencyKey), Map.of(), out);
     }
 
+    private int recordWeightedEntry(long drawingId, long memberId, String idempotencyKey, int weight, StringBuilder out) {
+        return postJson("/drawings/" + drawingId + "/entries",
+                Map.of("memberId", memberId, "sagaId", 99, "idempotencyKey", idempotencyKey, "weight", weight),
+                Map.of(), out);
+    }
+
     private List<OutboxEntry> outboxFor(String eventType, long drawingId) {
         return outbox.findAll().stream()
                 .filter(o -> o.getEventType().equals(eventType))
@@ -206,6 +216,82 @@ class CampaignIntegrationTest {
         StringBuilder replay = new StringBuilder();
         assertThat(recordEntry(drawingId, 42L, "entry-k-1", replay)).isEqualTo(200);   // idempotent
         assertThat(json(replay).path("entryId").asLong()).isEqualTo(entryId);          // same row
+    }
+
+    /**
+     * DRAWING-004 — entry de-duplication is keyed on {@code idempotency_key} ONLY, NOT on member.
+     *
+     * <p>NOTE ON THE TASK PREMISE: the requested scenario assumed a per-Drawing {@code allow_multiple_entries}
+     * flag enforced by a {@code UNIQUE(drawing_id, member_id)} constraint. No such flag or constraint exists
+     * in loyalty-campaign — the only uniqueness on {@code drawing_entry} is {@code idempotency_key} (V1
+     * baseline, line 72; schema comment: "a Saga replay cannot enter a Member twice"). By design the same
+     * Member MAY hold many entries (each its own key) — more entries = more chances under SEEDED_RNG/WEIGHTED.
+     * This test therefore pins the ACTUAL contract rather than asserting a rejection the code never makes:
+     * a distinct key for the same member creates a NEW row (201); an exact-key replay is the idempotent no-op.
+     */
+    @Test
+    void sameMemberWithDistinctKeysCreatesDistinctEntriesWhileSameKeyReplays() {
+        long campaign = liveCampaign();
+        long drawingId = drawing(campaign, "SEEDED_RNG", 1, true, Instant.now().plus(1, ChronoUnit.DAYS));
+
+        StringBuilder first = new StringBuilder();
+        assertThat(recordEntry(drawingId, 77L, "m77-key-a", first)).isEqualTo(201);
+        long firstEntry = json(first).path("entryId").asLong();
+
+        // SAME member, DIFFERENT key -> a second distinct entry is accepted (NOT rejected): 201, new row.
+        StringBuilder second = new StringBuilder();
+        assertThat(recordEntry(drawingId, 77L, "m77-key-b", second)).isEqualTo(201);
+        assertThat(json(second).path("entryId").asLong()).isNotEqualTo(firstEntry);
+
+        // SAME member, SAME key as the first -> idempotent replay: 200, the original row.
+        StringBuilder replay = new StringBuilder();
+        assertThat(recordEntry(drawingId, 77L, "m77-key-a", replay)).isEqualTo(200);
+        assertThat(json(replay).path("entryId").asLong()).isEqualTo(firstEntry);
+    }
+
+    /**
+     * DRAWING-005 — WEIGHTED selection (complements the SEEDED_RNG and FIRST_N coverage). K winners are
+     * selected without replacement, the seed is auditable ({@code seed_hex} recorded, 64 hex chars), and the
+     * outcome is deterministically re-verifiable from {@code seed + secret + frozen entry order/weights} by
+     * re-running the pure {@link WinnerSelection} algorithm with the same inputs.
+     */
+    @Test
+    void weightedDrawingSelectsKWinnersWithAuditableReplayableSeed() {
+        long campaign = liveCampaign();
+        long drawingId = drawing(campaign, "WEIGHTED", 3, true, Instant.now().minus(1, ChronoUnit.MINUTES));
+        // Six entries with ascending weights; entry-id order is arrival order here.
+        for (int i = 0; i < 6; i++) {
+            assertThat(recordWeightedEntry(drawingId, 500L + i, "wt-" + drawingId + "-" + i, i + 1, new StringBuilder()))
+                    .isEqualTo(201);
+        }
+
+        winnerSelection.selectWinner(drawingId);
+
+        var drawn = drawings.findById(drawingId).orElseThrow();
+        assertThat(drawn.getStatus()).isEqualTo(DrawingStatus.CLOSED);
+        var winners = winnerRecords.findByDrawingIdOrderByWinnerIndexAsc(drawingId);
+        assertThat(winners).hasSize(3);
+        assertThat(winners).extracting(w -> w.getWinnerIndex()).doesNotHaveDuplicates();
+        assertThat(winners).extracting(w -> w.getMemberId()).doesNotHaveDuplicates();
+        assertThat(winners).allSatisfy(w -> assertThat(w.getSeedHex()).hasSize(64));   // replayable seed
+        assertThat(outboxFor("DrawingCompleted", drawingId)).hasSize(1);
+        assertThat(outboxFor("WinnerSelected", drawingId)).hasSize(3);
+
+        // Re-verify deterministically: feed seed+secret+frozen entry order/weights back into the pure
+        // algorithm; an auditor reproduces the exact same winners (member + winner_index).
+        List<WinnerSelection.Entry> pool = java.util.stream.IntStream.range(0, 6)
+                .mapToObj(i -> new WinnerSelection.Entry(500L + i, i, i + 1)).toList();
+        List<WinnerSelection.Winner> replay = WinnerSelection.select(drawingId, drawn.getDrawAt(),
+                props.selection().hmacSecret(), pool, SelectionStrategy.WEIGHTED, 3);
+        // winner_record rows are read ordered by winner_index; the replay preserves the draw's pick order, so
+        // the two agree as sets (the same winners), and crucially each replayed winner_index maps to the same
+        // member_id as the persisted row — the audit reproduction.
+        assertThat(replay).extracting(WinnerSelection.Winner::winnerIndex)
+                .containsExactlyInAnyOrderElementsOf(winners.stream().map(w -> w.getWinnerIndex()).toList());
+        Map<Integer, Long> persistedByIndex = winners.stream()
+                .collect(java.util.stream.Collectors.toMap(w -> w.getWinnerIndex(), w -> w.getMemberId()));
+        assertThat(replay).allSatisfy(w ->
+                assertThat(w.memberId()).isEqualTo(persistedByIndex.get(w.winnerIndex())));
     }
 
     @Test

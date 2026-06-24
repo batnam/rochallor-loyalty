@@ -115,6 +115,7 @@ class EarningIntegrationTest {
     @Autowired ObjectMapper mapper;
     @Autowired Environment env;
     @Autowired io.github.batnam.loyalty.earning.caps.CapService capService;
+    @Autowired io.github.batnam.loyalty.earning.caps.CapPurgeJob capPurgeJob;
     @Autowired javax.sql.DataSource dataSource;
 
     private RestClient http;
@@ -354,6 +355,63 @@ class EarningIntegrationTest {
         // 10 (first rule, full) + 5 (second rule, scaled down) = 15.
         assertThat(ledgerCalls()).isEqualTo(2);
         assertThat(pointsEarnedOutbox().path("totalRedeemableDelta").asLong()).isEqualTo(15);
+    }
+
+    @Test
+    void monthlyCapExhaustionDropsTheOverflowingEvent() {
+        // CAP-003 (perMemberPerMonth): monthly cap = 5, FIXED 3. Both events fall in the same UTC month
+        // (cardSpend fires at 2026-05-30T10:00Z), so they share the MONTH:2026-05 counter. First fire
+        // consumes 3 (5→2); the second demands 3 but only 2 remain — the per-rule cap drops the whole fire.
+        activeRule("""
+            {"dslVersion":1,"earnSource":"CARD_SPEND",
+             "rows":[{"when":{"amount":"*"},"earn":{"type":"FIXED","points":3}}],
+             "caps":{"perMemberPerMonth":5}}""");
+
+        engine.process(cardSpend("evt-mcap-a", 1), MEMBER_REF);
+        engine.process(cardSpend("evt-mcap-b", 1), MEMBER_REF);
+
+        assertThat(ledgerCalls()).isEqualTo(1);   // second fire dropped by the monthly cap
+    }
+
+    @Test
+    void lifetimeCapHoldsAcrossEventsAndSurvivesPurge() {
+        // CAP-004 / CAP-008 (perMemberPerRule): a one-time lifetime cap = 1, FIXED 1. The first matching
+        // event awards once; every later matching event is dropped — the LIFE window never refills.
+        long ruleId = activeRule("""
+            {"dslVersion":1,"earnSource":"CARD_SPEND",
+             "rows":[{"when":{"amount":"*"},"earn":{"type":"FIXED","points":1}}],
+             "caps":{"perMemberPerRule":1}}""");
+
+        engine.process(cardSpend("evt-lcap-a", 1), MEMBER_REF);
+        engine.process(cardSpend("evt-lcap-b", 1), MEMBER_REF);
+        engine.process(cardSpend("evt-lcap-c", 1), MEMBER_REF);
+
+        assertThat(ledgerCalls()).isEqualTo(1);   // only the first fire is ever awarded
+
+        // The LIFE counter row exists (window_key "LIFE", expires_at NULL) and must NOT be purged: the
+        // nightly purge only removes rows with a non-NULL expires_at in the past.
+        long lifeRows = lifeCounterRows(ruleId);
+        assertThat(lifeRows).isEqualTo(1);
+        capPurgeJob.purge();                              // run the real nightly purge (its own @Transactional)
+        assertThat(lifeCounterRows(ruleId)).isEqualTo(1);   // lifetime row (expires_at NULL) survives the purge
+    }
+
+    /** Count cap_counter LIFE rows for this rule+member (used to assert lifetime counters are never purged). */
+    private long lifeCounterRows(long ruleId) {
+        try (java.sql.Connection c = dataSource.getConnection();
+             var ps = c.prepareStatement(
+                     "SELECT COUNT(*) FROM cap_counter WHERE program_id = ? AND rule_id = ? "
+                             + "AND member_id = ? AND window_key = 'LIFE' AND expires_at IS NULL")) {
+            ps.setLong(1, PROGRAM);
+            ps.setLong(2, ruleId);
+            ps.setLong(3, MEMBER);
+            try (var rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test

@@ -92,6 +92,7 @@ class CoreIntegrationTest {
     @Autowired io.github.batnam.loyalty.core.program.ProgramConfigService programConfig;
     @Autowired io.github.batnam.loyalty.core.job.TierReevaluationProcessor tierReeval;
     @Autowired io.github.batnam.loyalty.core.job.TcsGraceJob tcsGraceJob;
+    @Autowired io.github.batnam.loyalty.core.job.ReservationTtlSweeper ttlSweeper;
     @Autowired MemberRepository members;
     @Autowired LedgerRepository ledgerRepo;
     @Autowired CohortRepository cohorts;
@@ -362,7 +363,85 @@ class CoreIntegrationTest {
         }
     }
 
+    @Test
+    void ttlSweeperReleasesStaleHeldWithoutLedgerEntry() {
+        // BATCH-002 / RESV-002: a HELD reservation whose held_until has elapsed is auto-released by the
+        // sweeper. Release is NOT a ledger mutation (P5): the held points return to the effective balance,
+        // no cohort is consumed, and no Redeemed entry is written.
+        long m = newMember(2017);
+        ledger.appendEarn(m, PROGRAM, "earn:2017:a", 0, 100, "CARD_SPEND", "USD", Instant.now());
+        Reservation held = reservations.reserve(m, PROGRAM, 80, null, null, "idem:2017:1");
+        assertThat(held.isHeld()).isTrue();
+
+        // While the hold stands, only 20 is reservable — proves the hold counts against effective balance.
+        assertThatThrownBy(() -> reservations.reserve(m, PROGRAM, 100, null, null, "idem:2017:guard"))
+                .isInstanceOf(CoreException.class)
+                .matches(e -> ((CoreException) e).code().equals("BALANCE_INSUFFICIENT"));
+
+        // Backdate the TTL into the past so the sweeper sees it as expired, then run the sweep.
+        backdateReservationTtl(held.reservationId(), Instant.now().minus(10, ChronoUnit.MINUTES));
+        ttlSweeper.sweep();
+
+        // The reservation is RELEASED, the 100 is fully reservable again, balance untouched, no ledger entry.
+        assertThat(members.findById(m).orElseThrow().getRedeemableBalance()).isEqualTo(100);
+        assertThat(ledgerRepo.findBySourceRefAndEntryType(
+                "reservation-" + held.reservationId(), EntryType.Redeemed)).isEmpty();
+        List<PointCohort> cohortsAfter = cohorts.findByMemberIdAndProgramIdOrderByEarnedAtAsc(m, PROGRAM);
+        assertThat(cohortsAfter.get(0).getConsumedAmount()).isEqualTo(0);   // inventory restored / never consumed
+        reservations.reserve(m, PROGRAM, 100, null, null, "idem:2017:2");   // would throw if hold still counted
+    }
+
+    @Test
+    void negativeBalanceAfterClawbackBlocksReserve() {
+        // LEDGER-006: a clawback can drive the redeemable balance below zero. A subsequent reserve — even a
+        // tiny one — must be rejected because effective balance < requested, the same overspend gate as
+        // reserveGateRejectsOverspend.
+        long m = newMember(2018);
+        ledger.appendEarn(m, PROGRAM, "evt-2018:ruleA", 300, 300, "CARD_SPEND", "USD", Instant.now());
+        assertThat(members.findById(m).orElseThrow().getRedeemableBalance()).isEqualTo(300);
+
+        // Claw back MORE than the standing balance (reuse the Reversed path; appendReversed subtracts the
+        // original positive deltas and is allowed to go negative).
+        ledger.appendReversed(m, PROGRAM, 500, 500, "evt-2018:ruleA");
+        assertThat(members.findById(m).orElseThrow().getRedeemableBalance()).isEqualTo(-200);
+
+        assertThatThrownBy(() -> reservations.reserve(m, PROGRAM, 10, null, null, "idem:2018:1"))
+                .isInstanceOf(CoreException.class)
+                .matches(e -> ((CoreException) e).code().equals("BALANCE_INSUFFICIENT"));
+    }
+
+    @Test
+    void redeemDoesNotDropTier() {
+        // TIER-007: tier authority is keyed on the windowed Qualifying Balance. A redeem posts
+        // (qualifyingDelta=0, redeemableDelta=-N), so it never moves qualifying and must not drop the tier.
+        long m = newMember(2019);
+        ledger.appendEarn(m, PROGRAM, "earn:2019:a", 50_000, 50_000, "CARD_SPEND", "USD", Instant.now());
+        assertThat(members.findById(m).orElseThrow().getCurrentTierCode()).isEqualTo("SILVER");
+
+        // Redeem via commit (Redeemed entry, qualifying untouched).
+        Reservation held = reservations.reserve(m, PROGRAM, 40_000, 9L, null, "idem:2019:1");
+        reservations.commit(held.reservationId(), "disbursement-2019");
+
+        Member after = members.findById(m).orElseThrow();
+        assertThat(after.getRedeemableBalance()).isEqualTo(10_000);   // redeem consumed redeemable
+        assertThat(after.getQualifyingBalance()).isEqualTo(50_000);   // qualifying unchanged by redeem
+        assertThat(after.getCurrentTierCode()).isEqualTo("SILVER");   // tier did NOT drop
+    }
+
     // --- helpers -------------------------------------------------------------
+
+    private void backdateReservationTtl(long reservationId, Instant heldUntil) {
+        new org.springframework.transaction.support.TransactionTemplate(txManager).execute(status -> {
+            em.createNativeQuery("UPDATE point_reservation SET held_until = :at WHERE reservation_id = :id")
+                    .setParameter("at", java.sql.Timestamp.from(heldUntil))
+                    .setParameter("id", reservationId)
+                    .executeUpdate();
+            em.flush();
+            em.clear();   // evict the cached reservation so the sweeper's port query reads the backdated row
+            return null;
+        });
+    }
+
 
     private void setProgramTcs(long programId, int version, Instant effectiveAt) {
         new org.springframework.transaction.support.TransactionTemplate(txManager).execute(status -> {
